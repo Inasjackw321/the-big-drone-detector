@@ -112,6 +112,7 @@ function createWindow() {
     minHeight: 600,
     backgroundColor: '#0b1622',
     title: 'The Big Drone Detector',
+    icon: path.join(__dirname, 'icon.png'),
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,

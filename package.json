@@ -8,7 +8,13 @@
     "start": "electron .",
     "demo": "DDX_DEMO=1 electron .",
     "cli": "node src/cli.js",
-    "test": "node --test"
+    "test": "node --test",
+    "icon": "node scripts/make-icon.js",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis portable",
+    "dist:win:dir": "electron-builder --win dir",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux AppImage"
   },
   "keywords": [
     "drone",
@@ -21,9 +27,59 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^31.0.0"
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3"
   },
   "dependencies": {
     "leaflet": "^1.9.4"
+  },
+  "build": {
+    "appId": "com.inasjackw321.bigdronedetector",
+    "productName": "The Big Drone Detector",
+    "copyright": "Copyright © 2026",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "src/**/*",
+      "!**/*.test.js",
+      "!test/**/*",
+      "!scripts/**/*",
+      "!docs/**/*",
+      "package.json"
+    ],
+    "extraMetadata": {
+      "main": "src/main.js"
+    },
+    "win": {
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ],
+      "icon": "build/icon.png",
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "${productName}-${version}-portable.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "The Big Drone Detector"
+    },
+    "mac": {
+      "target": ["dmg"],
+      "icon": "build/icon.png",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": ["AppImage"],
+      "icon": "build/icon.png",
+      "category": "Utility"
+    }
   }
 }

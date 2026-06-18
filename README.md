@@ -41,7 +41,33 @@ runs, and prunes anything older than the retention window.
 
 ---
 
-## Quick start
+## 🪟 Get the Windows app (just download & double-click)
+
+You don't need Node or any developer tools to *run* the app — only to build it.
+
+**Option A — download a pre-built `.exe` (recommended).**
+Build artifacts are produced by GitHub Actions:
+1. Go to the repo's **Actions** tab → **Build Windows app** → run it (or push a
+   `v*` tag to also create a Release).
+2. Download the artifact `windows-app`. It contains two files:
+   - **`The Big Drone Detector-1.0.0-x64.exe`** — installer (Start-menu + desktop
+     shortcut). Run it, then launch from the Start menu.
+   - **`The Big Drone Detector-1.0.0-portable.exe`** — a single portable file; just
+     double-click it, nothing to install.
+3. First launch: open **⚙ Settings**, paste your free
+   [OpenRouter API key](https://openrouter.ai/keys), and press **▶ Start monitor**.
+   *(Or flip on Demo mode to try it with no key.)*
+
+> Windows SmartScreen may warn because the build is unsigned — click
+> **More info → Run anyway**.
+
+**Option B — run from source with one double-click.**
+Install [Node.js](https://nodejs.org/) (LTS), then double-click
+**`run-on-windows.bat`**. It installs dependencies on first run and starts the app.
+
+---
+
+## Quick start (from source, any OS)
 
 ### Prerequisites
 - **Node.js 18+** (Node 22 recommended)
@@ -58,6 +84,15 @@ npm start
 
 On first launch, open **⚙ Settings**, paste your OpenRouter API key, and press
 **▶ Start monitor**. That's it.
+
+### Build your own installer
+```bash
+npm run dist:win     # Windows: NSIS installer + portable .exe  (build on Windows)
+npm run dist:mac     # macOS .dmg   (build on macOS)
+npm run dist:linux   # Linux AppImage
+```
+Output lands in `dist/`. Building a Windows target on Linux requires Wine; the
+included GitHub Actions workflow builds it natively on `windows-latest` instead.
 
 ### Try it with no API key — Demo mode
 ```bash
