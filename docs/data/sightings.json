@@ -1715,10 +1715,62 @@
       "summary": "UAV threat alert remains in effect for Belgorod, Kursk, and Voronezh oblasts.",
       "timestamp": "2026-06-18T11:42:54+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76316:Moscow Oblast",
+      "location": "Moscow Oblast",
+      "locationRu": "Московская область",
+      "region": "Moscow Oblast",
+      "lat": 56.0697999,
+      "lon": 38.0162204,
+      "geocodeSource": "nominatim",
+      "matchedName": "State fire academy of EMERCOM of Russia",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "alert",
+      "confidence": 0.7,
+      "postId": 76316,
+      "postLink": "https://t.me/radarrussiia/76316",
+      "postText": "Московская область\nВнимание по БПЛА от Рязанской области\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-18T11:45:31+00:00",
+      "summary": "Alert about UAV activity originating from Ryazan Oblast and heading toward Moscow Oblast.",
+      "timestamp": "2026-06-18T11:45:31+00:00",
+      "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76316:Ryazan Oblast",
+      "location": "Ryazan Oblast",
+      "locationRu": "Рязанская область",
+      "region": "Ryazan Oblast",
+      "lat": 54.6304632,
+      "lon": 39.7556864,
+      "geocodeSource": "nominatim",
+      "matchedName": "Ryazan Oblast Ministry of health",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "alert",
+      "confidence": 0.7,
+      "postId": 76316,
+      "postLink": "https://t.me/radarrussiia/76316",
+      "postText": "Московская область\nВнимание по БПЛА от Рязанской области\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-18T11:45:31+00:00",
+      "summary": "Alert about UAV activity originating from Ryazan Oblast and heading toward Moscow Oblast.",
+      "timestamp": "2026-06-18T11:45:31+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76314
+    "radarrussiia": 76316
   },
-  "updatedAt": "2026-06-18T11:44:45.650Z"
+  "updatedAt": "2026-06-18T11:47:45.423Z"
 }
