@@ -1767,10 +1767,36 @@
       "summary": "Alert about UAV activity originating from Ryazan Oblast and heading toward Moscow Oblast.",
       "timestamp": "2026-06-18T11:45:31+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76317:Kostroma Oblast",
+      "location": "Kostroma Oblast",
+      "locationRu": "Костромская область",
+      "region": "Kostroma Oblast",
+      "lat": 57.7964854,
+      "lon": 40.9693305,
+      "geocodeSource": "nominatim",
+      "matchedName": "Kostroma",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "all_clear",
+      "confidence": 0.8,
+      "postId": 76317,
+      "postLink": "https://t.me/radarrussiia/76317",
+      "postText": "Костромская область\nОтбой опасности по БПЛА\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-18T12:21:59+00:00",
+      "summary": "All-clear issued for drone threat in Kostroma Oblast.",
+      "timestamp": "2026-06-18T12:21:59+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76316
+    "radarrussiia": 76317
   },
-  "updatedAt": "2026-06-18T11:47:45.423Z"
+  "updatedAt": "2026-06-18T12:35:25.305Z"
 }
