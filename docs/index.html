@@ -11,307 +11,76 @@
       crossorigin=""
     />
     <style>
-      :root {
-        --bg: #0b1622;
-        --bg-2: #11202e;
-        --panel: #15273a;
-        --panel-2: #1b3047;
-        --border: #243b54;
-        --text: #e6eef7;
-        --muted: #8aa1b8;
-        --accent: #2f9bff;
-        --accent-2: #1c7ad6;
-        --danger: #e5484d;
-        --ok: #30c862;
-        --warn: #f5a623;
-        --drone: #ff5c5c;
-        --missile: #ff8a3d;
-        --air_defense: #4fb6ff;
-        --explosion: #ffd23d;
-        --shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
-      }
       * { box-sizing: border-box; }
-      html, body {
-        margin: 0;
-        height: 100%;
-        font-family: -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-        background: var(--bg);
-        color: var(--text);
-        overflow: hidden;
+      html, body { margin: 0; height: 100%; }
+      body {
+        font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
       }
-      body { display: flex; flex-direction: column; height: 100vh; }
+      /* Full-screen map */
+      #map { position: absolute; inset: 0; background: #aadaff; }
 
-      a { color: var(--accent); text-decoration: none; }
-      a:hover { text-decoration: underline; }
-      .muted { color: var(--muted); }
-      .hidden { display: none !important; }
-
-      /* Top bar */
-      .topbar {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        padding: 10px 16px;
-        background: linear-gradient(180deg, var(--bg-2), var(--bg));
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-      }
-      .brand { display: flex; align-items: center; gap: 12px; }
-      .logo { font-size: 26px; }
-      .brand h1 { font-size: 17px; margin: 0; letter-spacing: 0.2px; }
-      .subtitle { margin: 2px 0 0; font-size: 12px; color: var(--muted); }
-      .controls { display: flex; align-items: center; gap: 8px; }
-
-      /* Buttons */
-      .btn {
-        background: var(--panel);
-        color: var(--text);
-        border: 1px solid var(--border);
+      /* Floating title bar */
+      .bar {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        z-index: 1000;
+        background: rgba(15, 25, 38, 0.85);
+        color: #e6eef7;
+        padding: 8px 14px;
         border-radius: 8px;
-        padding: 8px 12px;
-        font-size: 13px;
-        cursor: pointer;
-        transition: background 0.15s, border-color 0.15s, transform 0.05s;
-      }
-      .btn:hover { background: var(--panel-2); }
-      .btn:active { transform: translateY(1px); }
-      .btn-primary {
-        background: var(--accent);
-        border-color: var(--accent-2);
-        color: #fff;
-        font-weight: 600;
-      }
-      .btn-primary:hover { background: var(--accent-2); }
-      .btn-ghost { background: transparent; }
-
-      /* Layout */
-      .layout { flex: 1; display: flex; min-height: 0; }
-      #map { flex: 1; min-width: 0; background: #0e1a26; }
-      .sidebar {
-        width: 360px;
-        background: var(--bg-2);
-        border-left: 1px solid var(--border);
-        display: flex;
-        flex-direction: column;
-        min-height: 0;
-      }
-      .sidebar-head {
-        padding: 12px 14px;
-        border-bottom: 1px solid var(--border);
-        flex-shrink: 0;
-      }
-      .sidebar-head h2 {
         font-size: 14px;
-        margin: 0 0 10px;
-        display: flex;
-        align-items: center;
-        gap: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+        max-width: calc(100% - 20px);
       }
-      .count {
-        background: var(--panel-2);
-        border: 1px solid var(--border);
-        color: var(--muted);
-        border-radius: 999px;
-        padding: 1px 9px;
-        font-size: 12px;
-        font-weight: 600;
-      }
-      .filters { display: flex; gap: 8px; }
-      .filters input,
-      .filters select {
-        flex: 1;
-        min-width: 0;
-        background: var(--panel);
-        border: 1px solid var(--border);
-        color: var(--text);
+      .bar b { font-size: 15px; }
+      .bar .sub { font-size: 12px; opacity: 0.8; margin-top: 2px; }
+      .bar a { color: #6cc0ff; text-decoration: none; }
+      .bar a:hover { text-decoration: underline; }
+
+      /* Legend */
+      .legend {
+        position: absolute;
+        bottom: 18px;
+        left: 10px;
+        z-index: 1000;
+        background: rgba(15, 25, 38, 0.85);
+        color: #e6eef7;
+        padding: 8px 12px;
         border-radius: 8px;
-        padding: 7px 9px;
-        font-size: 13px;
-      }
-
-      /* Sighting list */
-      .sighting-list {
-        list-style: none;
-        margin: 0;
-        padding: 6px;
-        overflow-y: auto;
-        flex: 1;
-      }
-      .sighting {
-        background: var(--panel);
-        border: 1px solid var(--border);
-        border-left-width: 4px;
-        border-radius: 10px;
-        padding: 10px 12px;
-        margin: 6px 4px;
-        cursor: pointer;
-        transition: background 0.12s, transform 0.05s;
-      }
-      .sighting:hover { background: var(--panel-2); }
-      .sighting.active { outline: 2px solid var(--accent); }
-      .sighting .row1 {
-        display: flex;
-        justify-content: space-between;
-        align-items: baseline;
-        gap: 8px;
-      }
-      .sighting .place { font-weight: 600; font-size: 14px; }
-      .sighting .time { font-size: 11px; color: var(--muted); white-space: nowrap; }
-      .sighting .meta {
-        margin-top: 4px;
-        display: flex;
-        flex-wrap: wrap;
-        gap: 6px;
-        align-items: center;
-      }
-      .chip {
-        font-size: 11px;
-        padding: 2px 7px;
-        border-radius: 6px;
-        background: var(--panel-2);
-        border: 1px solid var(--border);
-        color: var(--muted);
-      }
-      .chip.type-drone { color: var(--drone); border-color: var(--drone); }
-      .chip.type-missile,
-      .chip.type-cruise_missile,
-      .chip.type-ballistic_missile { color: var(--missile); border-color: var(--missile); }
-      .chip.type-air_defense { color: var(--air_defense); border-color: var(--air_defense); }
-      .chip.type-explosion { color: var(--explosion); border-color: var(--explosion); }
-      .sighting .summary {
-        margin-top: 6px;
         font-size: 12px;
-        color: var(--muted);
-        display: -webkit-box;
-        -webkit-line-clamp: 2;
-        -webkit-box-orient: vertical;
-        overflow: hidden;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
       }
-      .empty {
-        padding: 22px 18px;
-        text-align: center;
-        color: var(--muted);
-        font-size: 13px;
+      .legend .row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
+      .legend .swatch {
+        width: 11px; height: 11px; border-radius: 50%; display: inline-block;
       }
 
-      /* Status bar */
-      .statusbar {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        padding: 7px 14px;
-        font-size: 12px;
-        background: var(--bg-2);
-        border-top: 1px solid var(--border);
-        flex-shrink: 0;
-      }
-      .spacer { flex: 1; }
-      .dot {
-        width: 9px;
-        height: 9px;
-        border-radius: 50%;
-        flex-shrink: 0;
-      }
-      .dot-idle { background: var(--muted); }
-      .dot-loading { background: var(--accent); animation: pulse 1.4s infinite; }
-      .dot-ok { background: var(--ok); }
-      .dot-error { background: var(--danger); }
-      @keyframes pulse {
-        0%   { box-shadow: 0 0 0 0 rgba(47,155,255,0.5); }
-        70%  { box-shadow: 0 0 0 8px rgba(47,155,255,0); }
-        100% { box-shadow: 0 0 0 0 rgba(47,155,255,0); }
-      }
-
-      /* Leaflet popup */
-      .leaflet-popup-content-wrapper {
-        background: var(--panel);
-        color: var(--text);
-        border-radius: 10px;
-      }
-      .leaflet-popup-tip { background: var(--panel); }
-      .popup h3 { margin: 0 0 6px; font-size: 14px; }
-      .popup .popup-meta { font-size: 12px; color: var(--muted); margin-bottom: 6px; }
-      .popup .popup-text {
-        font-size: 12px;
-        max-height: 90px;
-        overflow-y: auto;
-        white-space: pre-wrap;
-        border-top: 1px solid var(--border);
-        padding-top: 6px;
-      }
-      .popup a { color: var(--accent); }
-
-      /* Responsive: on narrow screens sidebar goes below the map */
-      @media (max-width: 700px) {
-        .layout { flex-direction: column; }
-        .sidebar { width: 100%; border-left: none; border-top: 1px solid var(--border); max-height: 40vh; }
-        #map { flex: none; height: 60vw; min-height: 200px; }
+      .popup b { font-size: 14px; }
+      .popup .meta { color: #555; font-size: 12px; margin: 4px 0; }
+      .popup .text {
+        font-size: 12px; max-height: 80px; overflow-y: auto;
+        white-space: pre-wrap; border-top: 1px solid #ddd; padding-top: 4px; margin-top: 4px;
       }
     </style>
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo">🛰️</span>
-        <div>
-          <h1>The Big Drone Detector</h1>
-          <p class="subtitle">
-            Monitoring
-            <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
-            via OpenRouter ·
-            <a href="https://github.com/Inasjackw321/the-big-drone-detector" target="_blank" rel="noopener">source</a>
-          </p>
-        </div>
-      </div>
-      <div class="controls">
-        <span id="updatedLabel" class="muted" style="font-size:12px"></span>
-        <button id="btnRefresh" class="btn btn-primary">⟳ Refresh</button>
-      </div>
-    </header>
+    <div id="map"></div>
 
-    <main class="layout">
-      <div id="map"></div>
-
-      <aside class="sidebar">
-        <div class="sidebar-head">
-          <h2>
-            Sightings
-            <span id="countBadge" class="count">0</span>
-          </h2>
-          <div class="filters">
-            <input id="search" type="text" placeholder="Filter by place / region…" />
-            <select id="typeFilter">
-              <option value="">All types</option>
-              <option value="drone">Drone / UAV</option>
-              <option value="cruise_missile">Cruise missile</option>
-              <option value="ballistic_missile">Ballistic missile</option>
-              <option value="missile">Missile</option>
-              <option value="air_defense">Air defense</option>
-              <option value="explosion">Explosion</option>
-              <option value="unknown">Unknown</option>
-            </select>
-          </div>
-        </div>
-        <ul id="sightingList" class="sighting-list"></ul>
-        <div id="emptyState" class="empty">
-          <p>No sightings to show.</p>
-          <p class="muted">
-            Data updates automatically every 15 minutes via GitHub Actions.
-            Try refreshing, or check back soon.
-          </p>
-        </div>
-      </aside>
-    </main>
-
-    <footer class="statusbar">
-      <span id="statusDot" class="dot dot-idle"></span>
-      <span id="statusText">Loading…</span>
-      <span class="spacer"></span>
-      <span class="muted" style="font-size:11px">
-        Auto-refreshes every 5 min ·
+    <div class="bar">
+      <b>🛰️ The Big Drone Detector</b>
+      <div class="sub">
+        <span id="count">Loading…</span> · source:
         <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
-      </span>
-    </footer>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div class="row"><span class="swatch" style="background:#ff5c5c"></span> Drone</div>
+      <div class="row"><span class="swatch" style="background:#ff8a3d"></span> Missile</div>
+      <div class="row"><span class="swatch" style="background:#4fb6ff"></span> Air defense</div>
+      <div class="row"><span class="swatch" style="background:#ffd23d"></span> Explosion</div>
+    </div>
 
     <script
       src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -319,19 +88,9 @@
       crossorigin=""
     ></script>
     <script>
-      /* jshint esversion: 11 */
       'use strict';
 
-      const TYPE_LABELS = {
-        drone: 'Drone / UAV',
-        missile: 'Missile',
-        cruise_missile: 'Cruise missile',
-        ballistic_missile: 'Ballistic missile',
-        air_defense: 'Air defense',
-        explosion: 'Explosion',
-        unknown: 'Unknown',
-      };
-      const TYPE_COLORS = {
+      const COLORS = {
         drone: '#ff5c5c',
         missile: '#ff8a3d',
         cruise_missile: '#ff8a3d',
@@ -340,208 +99,80 @@
         explosion: '#ffd23d',
         unknown: '#9fb3c8',
       };
-      const STATUS_LABELS = {
-        approaching: 'approaching',
-        overhead: 'overhead',
-        shot_down: 'shot down',
-        impact: 'impact',
-        alert: 'alert',
-        all_clear: 'all clear',
-        unknown: '',
+      const LABELS = {
+        drone: 'Drone / UAV',
+        missile: 'Missile',
+        cruise_missile: 'Cruise missile',
+        ballistic_missile: 'Ballistic missile',
+        air_defense: 'Air defense',
+        explosion: 'Explosion',
+        unknown: 'Unknown',
       };
 
-      // ---- State ----
-      const state = {
-        sightings: new Map(),
-        markers: new Map(),
-        filterText: '',
-        filterType: '',
-        activeId: null,
-      };
-
-      // ---- Map ----
-      const map = L.map('map', { zoomControl: true, worldCopyJump: true }).setView([53.5, 41.0], 5);
+      // Basic map
+      const map = L.map('map').setView([55.0, 40.0], 5);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18,
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+        attribution: '© OpenStreetMap contributors',
       }).addTo(map);
 
-      // ---- Helpers ----
-      function el(id) { return document.getElementById(id); }
+      let layer = L.layerGroup().addTo(map);
 
-      function fmtTime(iso) {
-        if (!iso) return '';
-        const d = new Date(iso);
-        if (isNaN(d)) return '';
-        const diffMin = Math.round((Date.now() - d.getTime()) / 60000);
-        if (diffMin < 1) return 'just now';
-        if (diffMin < 60) return `${diffMin}m ago`;
-        if (diffMin < 1440) return `${Math.round(diffMin / 60)}h ago`;
-        return d.toLocaleDateString();
-      }
-
-      function recencyFactor(iso) {
-        const d = Date.parse(iso || '');
-        if (!d) return 0.4;
-        const ageHr = (Date.now() - d) / 3600000;
-        return Math.max(0.35, Math.min(1, 1 - ageHr / 48));
-      }
-
-      function escapeHtml(s) {
+      function esc(s) {
         return (s || '').replace(/[&<>"']/g, (c) => (
           { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
         ));
       }
 
-      function popupHtml(s) {
-        const parts = [`<div class="popup"><h3>${escapeHtml(s.location)}</h3>`];
-        const bits = [TYPE_LABELS[s.threatType] || s.threatType];
-        if (s.count) bits.push(`×${s.count}`);
-        if (STATUS_LABELS[s.status]) bits.push(STATUS_LABELS[s.status]);
+      function popup(s) {
+        const bits = [LABELS[s.threatType] || s.threatType];
+        if (s.count) bits.push('×' + s.count);
         if (s.region) bits.push(s.region);
-        parts.push(`<div class="popup-meta">${escapeHtml(bits.filter(Boolean).join(' · '))}</div>`);
-        if (s.heading) parts.push(`<div class="popup-meta">Heading: ${escapeHtml(s.heading)}</div>`);
-        parts.push(`<div class="popup-meta">${fmtTime(s.timestamp)} · via ${escapeHtml(s.geocodeSource || '')}</div>`);
-        if (s.postText) parts.push(`<div class="popup-text">${escapeHtml(s.postText)}</div>`);
+        let html = `<div class="popup"><b>${esc(s.location)}</b>`;
+        html += `<div class="meta">${esc(bits.filter(Boolean).join(' · '))}</div>`;
+        if (s.postText) html += `<div class="text">${esc(s.postText)}</div>`;
         if (s.postLink) {
-          parts.push(`<div style="margin-top:6px"><a href="${escapeHtml(s.postLink)}" target="_blank" rel="noopener">Open Telegram post ↗</a></div>`);
+          html += `<div style="margin-top:6px"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open Telegram post ↗</a></div>`;
         }
-        parts.push('</div>');
-        return parts.join('');
+        return html + '</div>';
       }
 
-      // ---- Markers ----
-      function upsertMarker(s) {
-        const color = TYPE_COLORS[s.threatType] || TYPE_COLORS.unknown;
-        const factor = recencyFactor(s.timestamp);
-        const radius = 6 + 8 * factor;
-        const existing = state.markers.get(s.id);
-        if (existing) {
-          existing.setLatLng([s.lat, s.lon]);
-          existing.setStyle({ color, fillColor: color, fillOpacity: 0.25 + 0.5 * factor });
-          existing.setRadius(radius);
-          existing.bindPopup(popupHtml(s));
-          return existing;
-        }
-        const marker = L.circleMarker([s.lat, s.lon], {
-          radius, color, weight: 2, fillColor: color, fillOpacity: 0.25 + 0.5 * factor,
-        }).addTo(map);
-        marker.bindPopup(popupHtml(s));
-        marker.on('click', () => setActive(s.id, false));
-        state.markers.set(s.id, marker);
-        return marker;
-      }
-
-      // ---- Sidebar ----
-      function matchesFilter(s) {
-        if (state.filterType && s.threatType !== state.filterType) return false;
-        if (state.filterText) {
-          const hay = `${s.location} ${s.region} ${s.locationRu} ${s.summary}`.toLowerCase();
-          if (!hay.includes(state.filterText)) return false;
-        }
-        return true;
-      }
-
-      function renderList() {
-        const list = el('sightingList');
-        const items = Array.from(state.sightings.values())
-          .filter(matchesFilter)
-          .sort((a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0));
-
-        el('countBadge').textContent = String(state.sightings.size);
-        el('emptyState').classList.toggle('hidden', state.sightings.size > 0);
-
-        list.innerHTML = '';
-        for (const s of items) {
-          const li = document.createElement('li');
-          li.className = 'sighting' + (s.id === state.activeId ? ' active' : '');
-          li.style.borderLeftColor = TYPE_COLORS[s.threatType] || TYPE_COLORS.unknown;
-          li.dataset.id = s.id;
-
-          const metaChips = [
-            `<span class="chip type-${s.threatType}">${escapeHtml(TYPE_LABELS[s.threatType] || s.threatType)}${s.count ? ' ×' + s.count : ''}</span>`,
-          ];
-          if (STATUS_LABELS[s.status]) metaChips.push(`<span class="chip">${STATUS_LABELS[s.status]}</span>`);
-          if (s.region) metaChips.push(`<span class="chip">${escapeHtml(s.region)}</span>`);
-
-          li.innerHTML = `
-            <div class="row1">
-              <span class="place">${escapeHtml(s.location)}</span>
-              <span class="time">${fmtTime(s.timestamp)}</span>
-            </div>
-            <div class="meta">${metaChips.join('')}</div>
-            ${s.summary ? `<div class="summary">${escapeHtml(s.summary)}</div>` : ''}
-          `;
-          li.onclick = () => setActive(s.id, true);
-          list.appendChild(li);
-        }
-      }
-
-      function setActive(id, fly) {
-        state.activeId = id;
-        const s = state.sightings.get(id);
-        if (s) {
-          if (fly) map.flyTo([s.lat, s.lon], Math.max(map.getZoom(), 7), { duration: 0.6 });
-          const m = state.markers.get(id);
-          if (m) m.openPopup();
-        }
-        renderList();
-      }
-
-      // ---- Load data ----
-      function setStatus(cls, text) {
-        el('statusDot').className = 'dot dot-' + cls;
-        el('statusText').textContent = text;
-      }
-
-      async function loadData() {
-        setStatus('loading', 'Fetching latest sightings…');
+      async function load() {
         try {
           const res = await fetch('data/sightings.json?t=' + Date.now());
-          if (!res.ok) throw new Error(`HTTP ${res.status}`);
           const data = await res.json();
+          const sightings = (data.sightings || []).filter(
+            (s) => typeof s.lat === 'number' && typeof s.lon === 'number'
+          );
 
-          // Clear old markers
-          state.markers.forEach((m) => map.removeLayer(m));
-          state.markers.clear();
-          state.sightings.clear();
-
-          for (const s of data.sightings || []) {
-            if (typeof s.lat === 'number' && typeof s.lon === 'number') {
-              state.sightings.set(s.id, s);
-              upsertMarker(s);
-            }
+          layer.clearLayers();
+          const pts = [];
+          for (const s of sightings) {
+            const color = COLORS[s.threatType] || COLORS.unknown;
+            const m = L.circleMarker([s.lat, s.lon], {
+              radius: 8,
+              color,
+              weight: 2,
+              fillColor: color,
+              fillOpacity: 0.6,
+            }).bindPopup(popup(s));
+            layer.addLayer(m);
+            pts.push([s.lat, s.lon]);
           }
 
-          renderList();
+          if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 8 });
 
-          if (state.markers.size > 0) {
-            const group = L.featureGroup(Array.from(state.markers.values()));
-            map.fitBounds(group.getBounds().pad(0.3));
-          }
-
-          const updatedAt = data.updatedAt ? new Date(data.updatedAt) : null;
-          if (updatedAt && !isNaN(updatedAt)) {
-            el('updatedLabel').textContent = 'Updated ' + fmtTime(updatedAt.toISOString());
-          }
-
-          const count = state.sightings.size;
-          setStatus('ok', `${count} sighting${count === 1 ? '' : 's'} loaded.`);
+          const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString() : '—';
+          document.getElementById('count').textContent =
+            sightings.length + ' sighting' + (sightings.length === 1 ? '' : 's') + ' · updated ' + when;
         } catch (err) {
-          setStatus('error', 'Failed to load data: ' + err.message);
+          document.getElementById('count').textContent = 'Failed to load data';
         }
       }
 
-      // ---- Wire up ----
-      el('btnRefresh').onclick = loadData;
-      el('search').oninput = (e) => { state.filterText = e.target.value.trim().toLowerCase(); renderList(); };
-      el('typeFilter').onchange = (e) => { state.filterType = e.target.value; renderList(); };
-
-      // Auto-refresh every 5 minutes
-      setInterval(loadData, 5 * 60 * 1000);
-
-      // Initial load
-      loadData();
+      load();
+      // Refresh the map every 2 minutes
+      setInterval(load, 2 * 60 * 1000);
     </script>
   </body>
 </html>
