@@ -1611,10 +1611,36 @@
       "summary": "Drone threat alert for Voronezh city and nearby areas in Voronezh Oblast.",
       "timestamp": "2026-06-18T10:51:20+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76313:Kovrov",
+      "location": "Kovrov",
+      "locationRu": "Ковров",
+      "region": "Vladimir Oblast",
+      "lat": 56.3572,
+      "lon": 41.3117,
+      "geocodeSource": "llm",
+      "matchedName": "Kovrov",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "unknown",
+      "confidence": 0.85,
+      "postId": 76313,
+      "postLink": "https://t.me/radarrussiia/76313",
+      "postText": "Ковров\nВладимирская область\nРабота ПВО по БПЛА\nМеры безопасности\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-18T11:15:26+00:00",
+      "summary": "Air defense reported engaging a UAV over Kovrov, Vladimir Oblast.",
+      "timestamp": "2026-06-18T11:15:26+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76312
+    "radarrussiia": 76313
   },
-  "updatedAt": "2026-06-18T10:59:21.159Z"
+  "updatedAt": "2026-06-18T11:34:34.382Z"
 }
