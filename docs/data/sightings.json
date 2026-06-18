@@ -1671,10 +1671,34 @@
       "summary": "Approximately 20 UAVs reported transiting Tula Oblast heading towards Moscow.",
       "timestamp": "2026-06-18T09:39:33+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76311:Lipetsk Oblast",
+      "location": "Lipetsk Oblast",
+      "locationRu": "Липецкая область",
+      "region": "Lipetsk Oblast",
+      "lat": 52.6,
+      "lon": 39.6,
+      "geocodeSource": "gazetteer",
+      "matchedName": "Lipetsk Oblast",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "bearing": null,
+      "status": "all_clear",
+      "confidence": 0.7,
+      "postId": 76311,
+      "postLink": "https://t.me/radarrussiia/76311",
+      "postText": "Липецкая область\nОтбой опасности по БПЛА\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-18T10:21:44+00:00",
+      "summary": "All-clear declared after drone threat in Lipetsk Oblast.",
+      "timestamp": "2026-06-18T10:21:44+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76310
+    "radarrussiia": 76311
   },
-  "updatedAt": "2026-06-18T09:42:41.818Z"
+  "updatedAt": "2026-06-18T10:27:37.347Z"
 }
