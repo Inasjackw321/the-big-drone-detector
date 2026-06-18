@@ -24,7 +24,8 @@ Return STRICT JSON only (no markdown, no commentary) matching this schema:
       "lon": number|null,            // your best-known longitude if you are confident, else null
       "threat_type": string,         // one of: "drone", "missile", "cruise_missile", "ballistic_missile", "explosion", "air_defense", "unknown"
       "count": number|null,          // number of objects if stated, else null
-      "heading": string|null,        // direction of travel if stated (e.g. "north", "towards Moscow"), else null
+      "heading": string|null,        // compass direction of travel, normalized to one of: "north","north-east","east","south-east","south","south-west","west","north-west"; else null
+      "destination": string|null,    // place/city the threat is moving TOWARD if stated (e.g. "Moscow" from "курс на Москву" / "в сторону Москвы" / "движется на"), else null
       "status": string,              // one of: "approaching", "overhead", "shot_down", "impact", "alert", "all_clear", "unknown"
       "confidence": number           // 0..1 how confident this is a real, locatable sighting
     }
@@ -34,8 +35,9 @@ Return STRICT JSON only (no markdown, no commentary) matching this schema:
 Rules:
 - If the post is not about an aerial threat (ads, chat, unrelated news), set is_relevant=false and sightings=[].
 - Prefer the most specific place mentioned. If only a region is given, use the region as the location.
+- Pay close attention to MOVEMENT. If the post says where a threat is going ("курс на X", "в сторону X", "движется/летит/направляется на X", "направление — север", etc.), fill "destination" with the target place and/or "heading" with the compass direction. Leave both null only when no movement is described.
 - Only fill lat/lon when you are genuinely confident of the coordinates; otherwise null and the app will geocode.
-- Never invent locations that are not in the post.
+- Never invent locations or directions that are not in the post.
 - Output JSON only.`;
 
 /** Pull the first balanced JSON object out of a model response. */
@@ -115,6 +117,7 @@ function normalizeExtraction(raw) {
       threatType: THREAT_TYPES.has(s.threat_type) ? s.threat_type : 'unknown',
       count: typeof s.count === 'number' && isFinite(s.count) ? s.count : null,
       heading: s.heading ? s.heading.toString().trim() : null,
+      destination: s.destination ? s.destination.toString().trim() : null,
       status: STATUSES.has(s.status) ? s.status : 'unknown',
       confidence:
         typeof s.confidence === 'number' && isFinite(s.confidence)

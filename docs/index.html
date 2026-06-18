@@ -10,58 +10,47 @@
       html, body { height: 100%; background: #0d1b2a; }
       #map { position: absolute; inset: 0; }
 
-      /* override Leaflet's default white popup with dark theme */
+      /* dark popups */
       .leaflet-popup-content-wrapper {
-        background: #1a2d42;
-        color: #e0eaf5;
-        border-radius: 10px;
-        box-shadow: 0 4px 20px rgba(0,0,0,0.6);
-        border: 1px solid #2d4a6a;
+        background: #1a2d42; color: #e0eaf5; border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.6); border: 1px solid #2d4a6a;
       }
       .leaflet-popup-tip { background: #1a2d42; }
       .leaflet-popup-content { margin: 12px 14px; font-size: 13px; line-height: 1.5; }
-
       .popup-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #fff; }
       .popup-meta  { color: #8ab0d0; font-size: 12px; margin-bottom: 3px; }
+      .popup-dest  { color: #ffd27f; font-size: 12px; margin-bottom: 3px; }
       .popup-text  {
-        font-size: 12px; max-height: 75px; overflow-y: auto;
-        white-space: pre-wrap; border-top: 1px solid #2d4a6a;
-        padding-top: 6px; margin-top: 6px; color: #c0d8ee;
+        font-size: 12px; max-height: 75px; overflow-y: auto; white-space: pre-wrap;
+        border-top: 1px solid #2d4a6a; padding-top: 6px; margin-top: 6px; color: #c0d8ee;
       }
       .popup-link  { margin-top: 7px; }
       .popup-link a { color: #5aafff; font-size: 12px; text-decoration: none; }
       .popup-link a:hover { text-decoration: underline; }
 
-      /* top bar */
+      /* title bar */
       .bar {
-        position: absolute;
-        top: 12px; left: 50%; transform: translateX(-50%);
-        z-index: 1000;
-        background: rgba(13, 27, 42, 0.88);
-        color: #cde0f5;
-        padding: 8px 18px;
-        border-radius: 24px;
-        border: 1px solid #2d4a6a;
-        box-shadow: 0 2px 12px rgba(0,0,0,0.5);
-        font-size: 13px;
-        white-space: nowrap;
-        backdrop-filter: blur(6px);
+        position: absolute; top: 12px; left: 50%; transform: translateX(-50%);
+        z-index: 1000; background: rgba(13,27,42,0.88); color: #cde0f5;
+        padding: 8px 18px; border-radius: 24px; border: 1px solid #2d4a6a;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.5); font-size: 13px; white-space: nowrap;
+        backdrop-filter: blur(6px); font-family: -apple-system,"Segoe UI",Arial,sans-serif;
       }
       .bar b { color: #fff; }
       .bar a { color: #5aafff; text-decoration: none; }
       .bar a:hover { text-decoration: underline; }
       .bar .dot {
-        display: inline-block; width: 7px; height: 7px;
-        border-radius: 50%; background: #3fd87f;
-        margin-right: 5px; vertical-align: middle;
+        display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+        background: #3fd87f; margin-right: 5px; vertical-align: middle;
         animation: blink 2s ease-in-out infinite;
       }
-      @keyframes blink {
-        0%,100% { opacity: 1; } 50% { opacity: 0.3; }
-      }
+      @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-      /* custom map icon container */
-      .map-icon { position: relative; }
+      .threat-icon { background: none; border: none; }
+      .threat-icon svg { overflow: visible; }
+      /* gentle pulse on the moving ones */
+      .threat-icon .pulse { animation: ping 2.4s ease-out infinite; transform-origin: center; }
+      @keyframes ping { 0% { opacity: 0.5; } 70%,100% { opacity: 0; transform: scale(2.4); } }
     </style>
   </head>
   <body>
@@ -69,10 +58,8 @@
 
     <div class="bar">
       <span class="dot"></span>
-      <b>The Big Drone Detector</b>
-      &nbsp;·&nbsp;
-      <span id="count">loading…</span>
-      &nbsp;·&nbsp;
+      <b>The Big Drone Detector</b> &nbsp;·&nbsp;
+      <span id="count">loading…</span> &nbsp;·&nbsp;
       <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
     </div>
 
@@ -87,49 +74,93 @@
         missile:           { label: 'Missile',           color: '#ff9f3d', sym: '▲' },
         cruise_missile:    { label: 'Cruise missile',    color: '#ff9f3d', sym: '▲' },
         ballistic_missile: { label: 'Ballistic missile', color: '#ff6a00', sym: '▲' },
-        air_defense:       { label: 'Air defense',       color: '#4fb6ff', sym: '◉' },
-        explosion:         { label: 'Explosion',         color: '#ffd23d', sym: '✦' },
-        unknown:           { label: 'Unknown',           color: '#8aa8c8', sym: '?' },
+        air_defense:       { label: 'Air defense',       color: '#4fb6ff', sym: '◆' },
+        explosion:         { label: 'Explosion',         color: '#ffd23d', sym: '✸' },
+        unknown:           { label: 'Unknown',           color: '#8aa8c8', sym: '●' },
       };
 
-      function makeSvgIcon(type) {
-        const { color, sym } = THREAT[type] || THREAT.unknown;
-        // Pin shape: circle on top of a pointed triangle
-        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="38" viewBox="0 0 30 38">
-          <defs>
-            <filter id="s" x="-30%" y="-30%" width="160%" height="160%">
-              <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.55)"/>
-            </filter>
-          </defs>
-          <path d="M15 0C6.7 0 0 6.7 0 15c0 5.6 3 10.4 7.5 13L15 38l7.5-10C27 25.4 30 20.6 30 15 30 6.7 23.3 0 15 0z"
-                fill="${color}" filter="url(#s)"/>
-          <circle cx="15" cy="15" r="9" fill="rgba(0,0,0,0.25)"/>
-          <text x="15" y="20" text-anchor="middle" font-family="Arial,sans-serif"
-                font-size="11" font-weight="bold" fill="#fff">${sym}</text>
-        </svg>`;
-        return L.divIcon({
-          className: 'map-icon',
-          html: svg,
-          iconSize: [30, 38],
-          iconAnchor: [15, 38],
-          popupAnchor: [0, -40],
-        });
+      // frontend fallback: compass word -> degrees (0=N, clockwise)
+      const COMPASS = {
+        n:0,north:0,север:0, ne:45,'north-east':45,northeast:45,'северо-восток':45,
+        e:90,east:90,восток:90, se:135,'south-east':135,southeast:135,'юго-восток':135,
+        s:180,south:180,юг:180, sw:225,'south-west':225,southwest:225,'юго-запад':225,
+        w:270,west:270,запад:270, nw:315,'north-west':315,northwest:315,'северо-запад':315,
+      };
+      function headingToBearing(h) {
+        if (!h) return null;
+        const k = h.toString().trim().toLowerCase().replace(/\s+/g, '-');
+        if (k in COMPASS) return COMPASS[k];
+        for (const w of Object.keys(COMPASS)) if (w.length > 2 && k.includes(w)) return COMPASS[w];
+        return null;
+      }
+      function resolveBearing(s) {
+        if (typeof s.bearing === 'number' && isFinite(s.bearing)) return s.bearing;
+        return headingToBearing(s.heading);
       }
 
       function esc(s) {
         return (s || '').replace(/[&<>"']/g, (c) =>
-          ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])
-        );
+          ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
       }
-
       function fmtTime(iso) {
         if (!iso) return '';
         const d = new Date(iso);
         if (isNaN(d)) return '';
         const diff = Math.round((Date.now() - d) / 60000);
         if (diff < 1) return 'just now';
-        if (diff < 60) return `${diff}m ago`;
-        return `${Math.round(diff/60)}h ago`;
+        if (diff < 60) return diff + 'm ago';
+        return Math.round(diff / 60) + 'h ago';
+      }
+
+      // Build an SVG icon: a cluster of badges (one per object, capped) plus a
+      // travel arrow rotated to the bearing when the destination/heading is known.
+      function buildIcon(s) {
+        const t = THREAT[s.threatType] || THREAT.unknown;
+        const bearing = resolveBearing(s);
+        const n = Math.max(1, Math.min(s.count || 1, 3));
+        const extra = (s.count || 1) > 3 ? (s.count - 3) : 0;
+        const C = 32; // centre
+        const R = 9;  // badge radius
+        const spacing = 15;
+        const startX = C - ((n - 1) * spacing) / 2;
+
+        let badges = '';
+        for (let i = 0; i < n; i++) {
+          const x = startX + i * spacing;
+          badges +=
+            `<circle cx="${x}" cy="${C}" r="${R}" fill="#0d1b2a" stroke="${t.color}" stroke-width="2.5"/>` +
+            `<text x="${x}" y="${C + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="${t.color}">${t.sym}</text>`;
+        }
+        if (extra > 0) {
+          const x = startX + (n - 1) * spacing + spacing;
+          badges +=
+            `<text x="${x}" y="${C + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="#cde0f5">+${extra}</text>`;
+        }
+
+        // soft pulse ring under the first badge
+        const pulse = `<circle class="pulse" cx="${startX}" cy="${C}" r="${R}" fill="${t.color}"/>`;
+
+        // travel arrow (only when we know which way it's going)
+        let arrow = '';
+        if (bearing !== null) {
+          arrow =
+            `<g transform="rotate(${bearing} ${C} ${C})">` +
+            `<line x1="${C}" y1="${C - R - 2}" x2="${C}" y2="${C - R - 16}" stroke="${t.color}" stroke-width="2.5" stroke-linecap="round"/>` +
+            `<polygon points="${C},${C - R - 22} ${C - 5},${C - R - 12} ${C + 5},${C - R - 12}" fill="${t.color}"/>` +
+            `</g>`;
+        }
+
+        const svg =
+          `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">` +
+          pulse + arrow + badges + `</svg>`;
+
+        return L.divIcon({
+          className: 'threat-icon',
+          html: svg,
+          iconSize: [64, 64],
+          iconAnchor: [32, 32],
+          popupAnchor: [0, -22],
+        });
       }
 
       function popupHtml(s) {
@@ -138,32 +169,36 @@
         if (s.count) bits.push('×' + s.count);
         if (s.status && s.status !== 'unknown') bits.push(s.status.replace('_', ' '));
         if (s.region) bits.push(s.region);
+        const bearing = resolveBearing(s);
+        let going = '';
+        if (s.destination) going = 'Heading toward ' + esc(s.destination);
+        else if (bearing !== null) going = 'Heading ' + esc(s.heading || bearingWord(bearing));
         return `
           <div class="popup-title">${esc(s.location)}</div>
-          <div class="popup-meta">${esc(bits.join(' · '))}  ·  ${fmtTime(s.timestamp)}</div>
+          <div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>
+          ${going ? `<div class="popup-dest">➤ ${going}</div>` : ''}
           ${s.postText ? `<div class="popup-text">${esc(s.postText)}</div>` : ''}
           ${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}
         `;
       }
+      function bearingWord(b) {
+        const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+        return dirs[Math.round(b / 45) % 8];
+      }
 
-      // Dark CartoDB tiles
+      // dark tiles
       const map = L.map('map', { zoomControl: true }).setView([55.0, 40.0], 5);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         attribution: '© <a href="https://www.openstreetmap.org/copyright" style="color:#5aafff">OpenStreetMap</a> © <a href="https://carto.com/attributions" style="color:#5aafff">CARTO</a>',
       }).addTo(map);
 
-      // Style the Leaflet zoom control for dark theme
       document.addEventListener('DOMContentLoaded', () => {
         const style = document.createElement('style');
         style.textContent = `
-          .leaflet-control-zoom a {
-            background: #1a2d42 !important; color: #cde0f5 !important;
-            border-color: #2d4a6a !important;
-          }
-          .leaflet-control-zoom a:hover { background: #243f5e !important; }
-          .leaflet-control-attribution { background: rgba(13,27,42,0.7) !important; color: #8aa8c8 !important; }
-          .leaflet-control-attribution a { color: #5aafff !important; }
+          .leaflet-control-zoom a { background:#1a2d42!important; color:#cde0f5!important; border-color:#2d4a6a!important; }
+          .leaflet-control-zoom a:hover { background:#243f5e!important; }
+          .leaflet-control-attribution { background:rgba(13,27,42,0.7)!important; color:#8aa8c8!important; }
         `;
         document.head.appendChild(style);
       });
@@ -184,8 +219,21 @@
 
           layer.clearLayers();
           const pts = [];
+          let moving = 0;
           for (const s of sightings) {
-            L.marker([s.lat, s.lon], { icon: makeSvgIcon(s.threatType) })
+            const bearing = resolveBearing(s);
+
+            // Draw a dashed line toward the destination when we have its coords.
+            if (typeof s.destinationLat === 'number' && typeof s.destinationLon === 'number') {
+              const color = (THREAT[s.threatType] || THREAT.unknown).color;
+              L.polyline([[s.lat, s.lon], [s.destinationLat, s.destinationLon]], {
+                color, weight: 2, opacity: 0.6, dashArray: '6 6',
+              }).addTo(layer);
+              pts.push([s.destinationLat, s.destinationLon]);
+            }
+            if (bearing !== null || s.destination) moving++;
+
+            L.marker([s.lat, s.lon], { icon: buildIcon(s) })
               .bindPopup(popupHtml(s), { maxWidth: 280 })
               .addTo(layer);
             pts.push([s.lat, s.lon]);
@@ -193,12 +241,9 @@
 
           if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 9 });
 
-          const when = data.updatedAt
-            ? fmtTime(data.updatedAt)
-            : '—';
-          const el = document.getElementById('count');
-          el.textContent = sightings.length
-            ? `${sightings.length} sighting${sightings.length === 1 ? '' : 's'} in last hour · ${when}`
+          const when = data.updatedAt ? fmtTime(data.updatedAt) : '—';
+          document.getElementById('count').textContent = sightings.length
+            ? `${sightings.length} in last hour · ${moving} with direction · ${when}`
             : `no sightings in last hour · updated ${when}`;
         } catch {
           document.getElementById('count').textContent = 'failed to load';

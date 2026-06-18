@@ -59,6 +59,53 @@ function dedup(sightings) {
   );
 }
 
+// Map a free-text compass heading to a bearing in degrees (0=N, clockwise).
+const COMPASS = {
+  n: 0, north: 0, север: 0, северное: 0,
+  ne: 45, 'north-east': 45, northeast: 45, 'северо-восток': 45,
+  e: 90, east: 90, восток: 90, восточное: 90,
+  se: 135, 'south-east': 135, southeast: 135, 'юго-восток': 135,
+  s: 180, south: 180, юг: 180, южное: 180,
+  sw: 225, 'south-west': 225, southwest: 225, 'юго-запад': 225,
+  w: 270, west: 270, запад: 270, западное: 270,
+  nw: 315, 'north-west': 315, northwest: 315, 'северо-запад': 315,
+};
+
+function headingToBearing(heading) {
+  if (!heading) return null;
+  const key = heading.toString().trim().toLowerCase().replace(/\s+/g, '-');
+  if (key in COMPASS) return COMPASS[key];
+  // Loose contains match (e.g. "heading north toward Moscow").
+  for (const word of Object.keys(COMPASS)) {
+    if (word.length > 2 && key.includes(word)) return COMPASS[word];
+  }
+  return null;
+}
+
+// Great-circle initial bearing from point 1 to point 2, in degrees (0=N).
+function bearingBetween(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const φ1 = toRad(lat1);
+  const φ2 = toRad(lat2);
+  const Δλ = toRad(lon2 - lon1);
+  const y = Math.sin(Δλ) * Math.cos(φ2);
+  const x =
+    Math.cos(φ1) * Math.sin(φ2) -
+    Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+  return (Math.atan2(y, x) * 180) / Math.PI; // -180..180; (deg+360)%360 to normalize
+}
+
+// Fill bearing from a compass heading where it's missing. No network.
+function backfillBearings(sightings) {
+  for (const s of sightings) {
+    if ((s.bearing === null || s.bearing === undefined) && s.heading) {
+      const b = headingToBearing(s.heading);
+      if (b !== null) s.bearing = b;
+    }
+  }
+  return sightings;
+}
+
 async function main() {
   if (!API_KEY) {
     console.error('[update-map] OPENROUTER_API_KEY is required');
@@ -116,6 +163,28 @@ async function main() {
         continue;
       }
 
+      // Resolve where it's going: geocode the destination if the post named
+      // one, then derive a travel bearing (great-circle to the destination,
+      // falling back to the compass heading).
+      let destination = sighting.destination || null;
+      let destinationLat = null;
+      let destinationLon = null;
+      let bearing = null;
+
+      if (destination) {
+        const destGeo = await geocoder.resolve({
+          location: destination,
+          region: sighting.region,
+        });
+        if (destGeo) {
+          destinationLat = destGeo.lat;
+          destinationLon = destGeo.lon;
+          const b = bearingBetween(geo.lat, geo.lon, destGeo.lat, destGeo.lon);
+          bearing = ((b % 360) + 360) % 360;
+        }
+      }
+      if (bearing === null) bearing = headingToBearing(sighting.heading);
+
       const id = `${post.id}:${sighting.location}`;
       newSightingObjs.push({
         id,
@@ -129,6 +198,10 @@ async function main() {
         threatType: sighting.threatType,
         count: sighting.count,
         heading: sighting.heading,
+        destination,
+        destinationLat,
+        destinationLon,
+        bearing,
         status: sighting.status,
         confidence: sighting.confidence,
         postId: post.postId,
@@ -139,13 +212,14 @@ async function main() {
         timestamp: post.date || new Date().toISOString(),
         channel: CHANNEL,
       });
+      const arrow = bearing !== null ? `→${Math.round(bearing)}°` : 'no-dir';
       console.log(
-        `  📍 ${sighting.location} (${sighting.region}) [${sighting.threatType}] ${geo.lat.toFixed(3)},${geo.lon.toFixed(3)} via ${geo.source}`
+        `  📍 ${sighting.location} (${sighting.region}) [${sighting.threatType}] ${arrow}${destination ? ' → ' + destination : ''}`
       );
     }
   }
 
-  const merged = dedup([...state.sightings, ...newSightingObjs]);
+  const merged = backfillBearings(dedup([...state.sightings, ...newSightingObjs]));
   const pruned = pruneOld(merged);
 
   const updatedLastPostId = { ...(state.lastPostId || {}), [CHANNEL]: maxSeenId };
