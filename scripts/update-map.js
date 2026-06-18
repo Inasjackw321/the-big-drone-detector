@@ -106,6 +106,36 @@ function backfillBearings(sightings) {
   return sightings;
 }
 
+const VALID_HEADINGS = new Set([
+  'north', 'north-east', 'east', 'south-east',
+  'south', 'south-west', 'west', 'north-west',
+]);
+
+// If the LLM put a place name in "heading" (e.g. "towards Moscow"), extract it
+// as the destination and clear the heading so it doesn't confuse bearing logic.
+function normalizeSightingDirection(s) {
+  if (!s.heading) return s;
+  const h = s.heading.toLowerCase().trim();
+  if (VALID_HEADINGS.has(h.replace(/\s+/g, '-'))) return s; // already valid compass
+  // Extract place name from free-text like "towards Moscow" / "toward Kursk"
+  if (!s.destination) {
+    const m = h.match(/^towards?\s+(.+)/);
+    if (m) {
+      // Preserve original case for the extracted place name
+      const idx = s.heading.toLowerCase().indexOf(m[1]);
+      s.destination = s.heading.slice(idx).split(',')[0].trim();
+    }
+  }
+  s.heading = null;
+  return s;
+}
+
+// Rough bounding box: Russia + nearby conflict areas. Filters out geocoder results
+// that landed on a different continent (e.g. Moscow, Idaho).
+function isInRegion(lat, lon) {
+  return lat >= 38 && lat <= 78 && lon >= 18 && lon <= 195;
+}
+
 async function main() {
   if (!API_KEY) {
     console.error('[update-map] OPENROUTER_API_KEY is required');
@@ -156,7 +186,10 @@ async function main() {
       continue;
     }
 
-    for (const sighting of extraction.sightings) {
+    for (let sighting of extraction.sightings) {
+      // Fix headings that contain place names instead of compass directions.
+      sighting = normalizeSightingDirection(sighting);
+
       const geo = await geocoder.resolve(sighting);
       if (!geo) {
         console.log(`  [no-geo] ${sighting.location} in post ${post.postId}`);
@@ -167,20 +200,19 @@ async function main() {
       // one, then derive a travel bearing (great-circle to the destination,
       // falling back to the compass heading).
       let destination = sighting.destination || null;
-      let destinationLat = null;
-      let destinationLon = null;
       let bearing = null;
 
       if (destination) {
         const destGeo = await geocoder.resolve({
           location: destination,
-          region: sighting.region,
+          region: '', // don't bias by sighting region — destination may be a different region
         });
-        if (destGeo) {
-          destinationLat = destGeo.lat;
-          destinationLon = destGeo.lon;
+        // Only trust the geocoded destination if it lands in the expected region.
+        if (destGeo && isInRegion(destGeo.lat, destGeo.lon)) {
           const b = bearingBetween(geo.lat, geo.lon, destGeo.lat, destGeo.lon);
           bearing = ((b % 360) + 360) % 360;
+        } else if (destGeo) {
+          console.log(`  [bad-dest-geo] ${destination} resolved outside region (${destGeo.lat},${destGeo.lon})`);
         }
       }
       if (bearing === null) bearing = headingToBearing(sighting.heading);
@@ -199,8 +231,6 @@ async function main() {
         count: sighting.count,
         heading: sighting.heading,
         destination,
-        destinationLat,
-        destinationLon,
         bearing,
         status: sighting.status,
         confidence: sighting.confidence,
