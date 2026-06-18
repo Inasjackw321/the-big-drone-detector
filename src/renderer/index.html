@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self';
+               script-src 'self';
+               style-src 'self' 'unsafe-inline';
+               img-src 'self' data: https://*.tile.openstreetmap.org;
+               connect-src 'self';
+               font-src 'self';"
+    />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Big Drone Detector</title>
+    <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="topbar">
+      <div class="brand">
+        <span class="logo">🛰️</span>
+        <div>
+          <h1>The Big Drone Detector</h1>
+          <p class="subtitle">
+            Monitoring <a href="#" id="channelLink" class="link">@radarrussiia</a> ·
+            <span id="modelLabel">openrouter/owl-alpha</span>
+          </p>
+        </div>
+      </div>
+      <div class="controls">
+        <span id="demoBadge" class="badge badge-demo hidden">DEMO</span>
+        <button id="btnPoll" class="btn">⟳ Poll now</button>
+        <button id="btnToggle" class="btn btn-primary">▶ Start monitor</button>
+        <button id="btnSettings" class="btn btn-ghost" title="Settings">⚙</button>
+      </div>
+    </header>
+
+    <main class="layout">
+      <div id="map"></div>
+
+      <aside class="sidebar">
+        <div class="sidebar-head">
+          <h2>Live sightings <span id="countBadge" class="count">0</span></h2>
+          <div class="filters">
+            <input id="search" type="text" placeholder="Filter by place / region…" />
+            <select id="typeFilter">
+              <option value="">All types</option>
+              <option value="drone">Drone / UAV</option>
+              <option value="cruise_missile">Cruise missile</option>
+              <option value="ballistic_missile">Ballistic missile</option>
+              <option value="missile">Missile</option>
+              <option value="air_defense">Air defense</option>
+              <option value="explosion">Explosion</option>
+              <option value="unknown">Unknown</option>
+            </select>
+          </div>
+        </div>
+        <ul id="sightingList" class="sighting-list"></ul>
+        <div id="emptyState" class="empty">
+          <p>No sightings yet.</p>
+          <p class="muted">
+            Press <strong>Start monitor</strong> to begin, or open
+            <strong>⚙ Settings</strong> and enable <strong>Demo mode</strong> to
+            see it working without an API key.
+          </p>
+        </div>
+      </aside>
+    </main>
+
+    <footer class="statusbar">
+      <span id="statusDot" class="dot dot-idle"></span>
+      <span id="statusText">Idle. Add your OpenRouter key in Settings, then Start monitor.</span>
+      <span class="spacer"></span>
+      <span id="tickInfo" class="muted"></span>
+    </footer>
+
+    <!-- Settings modal -->
+    <div id="settingsModal" class="modal hidden">
+      <div class="modal-card">
+        <div class="modal-head">
+          <h2>Settings</h2>
+          <button id="btnCloseSettings" class="btn btn-ghost">✕</button>
+        </div>
+        <div class="modal-body">
+          <label class="field">
+            <span>OpenRouter API key</span>
+            <input id="setApiKey" type="password" placeholder="sk-or-… (stored locally)" />
+            <small id="keyHint" class="muted">Get a free key at openrouter.ai/keys</small>
+          </label>
+          <label class="field">
+            <span>Model</span>
+            <input id="setModel" type="text" placeholder="openrouter/owl-alpha" />
+          </label>
+          <label class="field">
+            <span>Telegram channel (public, no @)</span>
+            <input id="setChannel" type="text" placeholder="radarrussiia" />
+          </label>
+          <div class="field-row">
+            <label class="field">
+              <span>Poll interval (seconds)</span>
+              <input id="setInterval" type="number" min="20" step="10" />
+            </label>
+            <label class="field">
+              <span>Retention (hours)</span>
+              <input id="setRetention" type="number" min="1" step="1" />
+            </label>
+          </div>
+          <label class="checkbox">
+            <input id="setDemo" type="checkbox" />
+            <span>Demo mode (use bundled sample posts — no key/network needed)</span>
+          </label>
+        </div>
+        <div class="modal-foot">
+          <button id="btnClearData" class="btn btn-danger">Clear all sightings</button>
+          <span class="spacer"></span>
+          <button id="btnSaveSettings" class="btn btn-primary">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="renderer.js"></script>
+  </body>
+</html>
