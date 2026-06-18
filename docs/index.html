@@ -47,12 +47,15 @@
       }
       @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
 
-      .threat-icon { background: none; border: none; }
-      .threat-icon svg { overflow: visible; }
+      .threat-icon, .arrow-icon { background: none; border: none; }
+      .threat-icon svg { overflow: visible; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
+      .arrow-icon svg { overflow: visible; filter: drop-shadow(0 1px 1px rgba(0,0,0,0.6)); }
       .threat-icon .pulse { animation: ping 2.4s ease-out infinite; transform-origin: center; }
       .threat-icon .pulse-alert { animation: ping-alert 2s ease-out infinite; transform-origin: center; }
+      .threat-icon .rotor { animation: spin 3s linear infinite; transform-origin: center; transform-box: fill-box; }
       @keyframes ping { 0% { opacity: 0.5; } 70%,100% { opacity: 0; transform: scale(2.4); } }
       @keyframes ping-alert { 0% { opacity: 0.6; } 70%,100% { opacity: 0; transform: scale(1.8); } }
+      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     </style>
   </head>
   <body>
@@ -138,60 +141,137 @@
         return dirs[Math.round(b / 45) % 8];
       }
 
+      // ---- glyph builders: each returns an SVG fragment centred at (cx,cy) ----
+
+      // Top-down quadcopter: 4 rotor arms + spinning rotors + body.
+      function droneGlyph(cx, cy, color, s) {
+        const a = 4.8 * s;    // arm reach to rotor centre
+        const rr = 3.0 * s;   // rotor radius
+        const sw = 1.6 * s;   // stroke width
+        const corners = [[-a, -a], [a, -a], [-a, a], [a, a]];
+        let arms = '';
+        let rotors = '';
+        for (const [dx, dy] of corners) {
+          arms += `<line x1="${cx}" y1="${cy}" x2="${cx + dx}" y2="${cy + dy}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`;
+          rotors += `<circle class="rotor" cx="${cx + dx}" cy="${cy + dy}" r="${rr}" fill="#0d1b2a" stroke="${color}" stroke-width="${1.3 * s}"/>`;
+          rotors += `<line class="rotor" x1="${cx + dx - rr * 0.7}" y1="${cy + dy}" x2="${cx + dx + rr * 0.7}" y2="${cy + dy}" stroke="${color}" stroke-width="${0.9 * s}" opacity="0.7"/>`;
+        }
+        const body = `<circle cx="${cx}" cy="${cy}" r="${2.6 * s}" fill="${color}"/>`;
+        return arms + rotors + body;
+      }
+
+      // Missile / rocket: a pointed dart.
+      function missileGlyph(cx, cy, color, s) {
+        const h = 7.5 * s;
+        return (
+          `<polygon points="${cx},${cy - h} ${cx - h * 0.55},${cy + h * 0.7} ${cx + h * 0.55},${cy + h * 0.7}" fill="#0d1b2a" stroke="${color}" stroke-width="${1.7 * s}" stroke-linejoin="round"/>` +
+          `<polygon points="${cx},${cy - h} ${cx - h * 0.28},${cy} ${cx + h * 0.28},${cy}" fill="${color}"/>`
+        );
+      }
+
+      // Fallback: a coloured chip with the threat symbol.
+      function genericGlyph(cx, cy, color, sym, s) {
+        const r = 7.5 * s;
+        return (
+          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2 * s}"/>` +
+          `<text x="${cx}" y="${cy + 3.6 * s}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${10.5 * s}" font-weight="bold" fill="${color}">${sym}</text>`
+        );
+      }
+
+      function threatGlyph(type, cx, cy, color, s) {
+        if (type === 'drone') return droneGlyph(cx, cy, color, s);
+        if (type === 'missile' || type === 'cruise_missile' || type === 'ballistic_missile') {
+          return missileGlyph(cx, cy, color, s);
+        }
+        return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s);
+      }
+
+      // Build the marker icon: a swarm of one glyph per object (capped, with an
+      // exact count badge), a pulse halo, an alert ring, and a travel arrow.
       function buildIcon(s) {
         const t = THREAT[s.threatType] || THREAT.unknown;
+        const color = t.color;
         const bearing = resolveBearing(s);
         const isAlert = s.status === 'alert';
-        const n = Math.max(1, Math.min(s.count || 1, 3));
-        const extra = (s.count || 1) > 3 ? (s.count - 3) : 0;
-        const C = 32; // SVG centre
-        const R = 9;  // badge radius
-        const spacing = 15;
-        const startX = C - ((n - 1) * spacing) / 2;
+        const count = Math.max(1, s.count || 1);
+        const VB = 72, C = 36;
+        const cap = 6;
+        const n = Math.min(count, cap);
 
-        let badges = '';
-        for (let i = 0; i < n; i++) {
-          const x = startX + i * spacing;
-          const strokeColor = isAlert ? '#ff9f3d' : t.color;
-          badges +=
-            `<circle cx="${x}" cy="${C}" r="${R}" fill="#0d1b2a" stroke="${strokeColor}" stroke-width="2.5"/>` +
-            `<text x="${x}" y="${C + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="${t.color}">${t.sym}</text>`;
+        // Lay the glyphs out: single in the centre, otherwise a tidy ring.
+        let glyphs = '';
+        let clusterR;
+        if (n === 1) {
+          clusterR = 8;
+          glyphs = threatGlyph(s.threatType, C, C, color, 1);
+        } else {
+          clusterR = 8 + n;                 // 10 … 14
+          const gscale = 0.78;
+          for (let i = 0; i < n; i++) {
+            const ang = ((-90 + i * (360 / n)) * Math.PI) / 180;
+            const gx = C + clusterR * Math.cos(ang);
+            const gy = C + clusterR * Math.sin(ang);
+            glyphs += threatGlyph(s.threatType, gx, gy, color, gscale);
+          }
         }
-        if (extra > 0) {
-          const x = startX + (n - 1) * spacing + spacing;
-          badges +=
-            `<text x="${x}" y="${C + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="#cde0f5">+${extra}</text>`;
-        }
 
-        // Pulse ring: amber for alerts, threat-color otherwise
-        const pulseColor = isAlert ? '#ff9f3d' : t.color;
-        const pulse = `<circle class="pulse" cx="${startX}" cy="${C}" r="${R}" fill="${pulseColor}"/>`;
-
-        // Extra animated ring for alert-status sightings
+        // Pulse halo (amber when a region alert is active).
+        const pulseColor = isAlert ? '#ff9f3d' : color;
+        const pulse = `<circle class="pulse" cx="${C}" cy="${C}" r="9" fill="${pulseColor}"/>`;
         const alertRing = isAlert
-          ? `<circle class="pulse-alert" cx="${C}" cy="${C}" r="${R + 5}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.7"/>`
+          ? `<circle class="pulse-alert" cx="${C}" cy="${C}" r="${clusterR + 4}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.75"/>`
           : '';
 
-        // Travel arrow rotated to bearing (pointing away from the badge cluster)
+        // Travel arrow: starts just beyond the cluster, points along the bearing.
         let arrow = '';
         if (bearing !== null) {
+          const base = clusterR + 4;
+          const head = base + 9;
+          const tip = base + 17;
           arrow =
             `<g transform="rotate(${bearing} ${C} ${C})">` +
-            `<line x1="${C}" y1="${C - R - 2}" x2="${C}" y2="${C - R - 16}" stroke="${t.color}" stroke-width="2.5" stroke-linecap="round"/>` +
-            `<polygon points="${C},${C - R - 22} ${C - 5},${C - R - 12} ${C + 5},${C - R - 12}" fill="${t.color}"/>` +
+            `<line x1="${C}" y1="${C - base}" x2="${C}" y2="${C - head}" stroke="${color}" stroke-width="3.2" stroke-linecap="round"/>` +
+            `<polygon points="${C},${C - tip} ${C - 6},${C - head + 1} ${C + 6},${C - head + 1}" fill="${color}"/>` +
             `</g>`;
         }
 
+        // Exact count badge, bottom-right, drawn last so it stays readable.
+        let badge = '';
+        if (count > 1) {
+          const bx = C + 18, by = C + 18;
+          const label = String(count);
+          const r = label.length >= 2 ? 9.5 : 8;
+          badge =
+            `<circle cx="${bx}" cy="${by}" r="${r}" fill="${color}" stroke="#0d1b2a" stroke-width="1.6"/>` +
+            `<text x="${bx}" y="${by + 3.6}" text-anchor="middle" font-family="Arial,sans-serif" font-size="10.5" font-weight="bold" fill="#0d1b2a">${label}</text>`;
+        }
+
         const svg =
-          `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">` +
-          alertRing + pulse + arrow + badges + `</svg>`;
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${VB}" height="${VB}" viewBox="0 0 ${VB} ${VB}">` +
+          alertRing + pulse + arrow + glyphs + badge + `</svg>`;
 
         return L.divIcon({
           className: 'threat-icon',
           html: svg,
-          iconSize: [64, 64],
-          iconAnchor: [32, 32],
-          popupAnchor: [0, -22],
+          iconSize: [VB, VB],
+          iconAnchor: [C, C],
+          popupAnchor: [0, -26],
+        });
+      }
+
+      // A standalone arrowhead placed at the end of a direction line so the
+      // projected path clearly points to where the threat is heading.
+      function arrowheadIcon(bearing, color) {
+        const svg =
+          `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">` +
+          `<g transform="rotate(${bearing} 11 11)">` +
+          `<polygon points="11,2 4,17 11,13 18,17" fill="${color}" stroke="#0d1b2a" stroke-width="1"/>` +
+          `</g></svg>`;
+        return L.divIcon({
+          className: 'arrow-icon',
+          html: svg,
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
         });
       }
 
@@ -279,13 +359,19 @@
               }).addTo(layer);
             }
 
-            // Direction line: fixed 200 km in the bearing direction
+            // Direction line + arrowhead: 200 km along the computed bearing,
+            // tipped with an arrow pointing where the threat is heading.
             if (bearing !== null) {
               moving++;
               const endPt = destPoint(s.lat, s.lon, bearing, 200);
               const color = (THREAT[s.threatType] || THREAT.unknown).color;
               L.polyline([[s.lat, s.lon], endPt], {
-                color, weight: 2, opacity: 0.5, dashArray: '8 5',
+                color, weight: 2.5, opacity: 0.55, dashArray: '7 6',
+              }).addTo(layer);
+              L.marker(endPt, {
+                icon: arrowheadIcon(bearing, color),
+                interactive: false,
+                keyboard: false,
               }).addTo(layer);
             } else if (s.destination || extractDestFromHeading(s.heading)) {
               // Has destination text but bearing not computed yet — count as moving
