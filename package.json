@@ -27,8 +27,8 @@
   "author": "",
   "license": "MIT",
   "devDependencies": {
-    "electron": "^31.0.0",
-    "electron-builder": "^24.13.3"
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "leaflet": "^1.9.4"
@@ -54,8 +54,18 @@
     },
     "win": {
       "target": [
-        { "target": "nsis", "arch": ["x64"] },
-        { "target": "portable", "arch": ["x64"] }
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
       ],
       "icon": "build/icon.png",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
@@ -72,12 +82,16 @@
       "shortcutName": "The Big Drone Detector"
     },
     "mac": {
-      "target": ["dmg"],
+      "target": [
+        "dmg"
+      ],
       "icon": "build/icon.png",
       "category": "public.app-category.utilities"
     },
     "linux": {
-      "target": ["AppImage"],
+      "target": [
+        "AppImage"
+      ],
       "icon": "build/icon.png",
       "category": "Utility"
     }
