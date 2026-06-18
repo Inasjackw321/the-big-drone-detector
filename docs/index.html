@@ -19,6 +19,7 @@
       .leaflet-popup-content { margin: 12px 14px; font-size: 13px; line-height: 1.5; }
       .popup-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #fff; }
       .popup-meta  { color: #8ab0d0; font-size: 12px; margin-bottom: 3px; }
+      .popup-status { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
       .popup-dest  { color: #ffd27f; font-size: 12px; margin-bottom: 3px; }
       .popup-alert { color: #ff9f3d; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
       .popup-text  {
@@ -56,6 +57,33 @@
       @keyframes ping { 0% { opacity: 0.5; } 70%,100% { opacity: 0; transform: scale(2.4); } }
       @keyframes ping-alert { 0% { opacity: 0.6; } 70%,100% { opacity: 0; transform: scale(1.8); } }
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+      /* warnings panel */
+      .warn-panel {
+        position: absolute; top: 56px; left: 12px; z-index: 1000; width: 244px;
+        max-height: 62vh; display: none; overflow: hidden;
+        background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 12px;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.5); backdrop-filter: blur(6px);
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif; color: #cde0f5;
+      }
+      .warn-panel.danger { border-color: #ff3b3b; box-shadow: 0 0 0 1px #ff3b3b, 0 6px 20px rgba(0,0,0,0.55); }
+      .warn-head {
+        padding: 9px 12px; font-size: 13px; font-weight: 700; color: #fff;
+        border-bottom: 1px solid #2d4a6a; display: flex; align-items: center; gap: 7px;
+      }
+      .warn-head .wdot { width: 9px; height: 9px; border-radius: 50%; background: #ff7a3d; }
+      .warn-panel.danger .warn-head .wdot { background: #ff3b3b; animation: blink 1s ease-in-out infinite; }
+      .warn-list { overflow-y: auto; max-height: calc(62vh - 40px); }
+      .warn-item {
+        padding: 8px 12px; border-bottom: 1px solid rgba(45,74,106,0.5);
+        cursor: pointer; display: flex; gap: 9px; align-items: flex-start;
+      }
+      .warn-item:hover { background: #1a2d42; }
+      .warn-item:last-child { border-bottom: none; }
+      .warn-sev { width: 9px; height: 9px; border-radius: 50%; margin-top: 3px; flex: 0 0 auto; }
+      .warn-body { flex: 1; min-width: 0; }
+      .warn-region { font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .warn-meta { font-size: 11px; color: #8ab0d0; }
     </style>
   </head>
   <body>
@@ -66,6 +94,11 @@
       <b>The Big Drone Detector</b> &nbsp;·&nbsp;
       <span id="count">loading…</span> &nbsp;·&nbsp;
       <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
+    </div>
+
+    <div class="warn-panel" id="warnPanel">
+      <div class="warn-head"><span class="wdot"></span><span id="warnTitle">Warnings</span></div>
+      <div class="warn-list" id="warnList"></div>
     </div>
 
     <script src="vendor/leaflet/leaflet.js"></script>
@@ -83,6 +116,21 @@
         explosion:         { label: 'Explosion',         color: '#ffd23d', sym: '✸' },
         unknown:           { label: 'Unknown',           color: '#8aa8c8', sym: '●' },
       };
+
+      // Status drives the warning severity AND the marker colour, so the map
+      // reads as a live threat level: red = danger, orange = inbound,
+      // blue = intercepted, green = all clear.
+      const STATUS_INFO = {
+        alert:       { level: 3, color: '#ff3b3b', label: 'Danger',      warn: true  },
+        impact:      { level: 3, color: '#ff2d2d', label: 'Impact',      warn: true  },
+        approaching: { level: 2, color: '#ff7a3d', label: 'Inbound',     warn: true  },
+        overhead:    { level: 2, color: '#ffb03d', label: 'Overhead',    warn: true  },
+        shot_down:   { level: 1, color: '#4fb6ff', label: 'Intercepted', warn: false },
+        all_clear:   { level: 0, color: '#3fd87f', label: 'All clear',   warn: false },
+        unknown:     { level: 1, color: '#9ab4d0', label: 'Reported',    warn: false },
+      };
+      function statusInfo(s) { return STATUS_INFO[s && s.status] || STATUS_INFO.unknown; }
+      function markerColor(s) { return statusInfo(s).color; }
 
       const COMPASS = {
         n:0,north:0,север:0, ne:45,'north-east':45,northeast:45,'северо-восток':45,
@@ -304,10 +352,11 @@
       // it and a travel arrow rotated to the bearing. One icon per sighting —
       // the number says how many, the arrow says where it's going.
       function buildIcon(s) {
-        const t = THREAT[s.threatType] || THREAT.unknown;
-        const color = t.color;
+        const info = statusInfo(s);
+        const color = info.color;
         const bearing = resolveBearing(s);
-        const isAlert = s.status === 'alert';
+        const isWarn = info.warn;        // active threat → pulse
+        const isDanger = info.level >= 3; // danger/impact → alert ring
         const count = Math.max(1, s.count || 1);
 
         const scale = 1.05;
@@ -318,7 +367,7 @@
         const labelW = showCount ? label.length * 7 + 12 : 0;
         const labelGap = 6;
         const labelHalf = showCount ? 10 : 0;
-        const ringR = isAlert ? glyphR + 4 : glyphR;
+        const ringR = isDanger ? glyphR + 4 : glyphR;
         const arrowReach = bearing !== null ? glyphR + 22 : 0;
         const m = 5;
 
@@ -343,10 +392,12 @@
             `</g>`;
         }
 
-        const pulseColor = isAlert ? '#ff9f3d' : color;
-        const pulse = `<circle class="pulse" cx="${Gx}" cy="${Gy}" r="${glyphR}" fill="${pulseColor}"/>`;
-        const alertRing = isAlert
-          ? `<circle class="pulse-alert" cx="${Gx}" cy="${Gy}" r="${glyphR + 4}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.75"/>`
+        // Pulse only for active threats so resolved/all-clear markers stay calm.
+        const pulse = isWarn
+          ? `<circle class="pulse" cx="${Gx}" cy="${Gy}" r="${glyphR}" fill="${color}"/>`
+          : '';
+        const alertRing = isDanger
+          ? `<circle class="pulse-alert" cx="${Gx}" cy="${Gy}" r="${glyphR + 4}" fill="none" stroke="${color}" stroke-width="2" opacity="0.8"/>`
           : '';
 
         let badge = '';
@@ -388,9 +439,9 @@
 
       function popupHtml(s) {
         const t = THREAT[s.threatType] || THREAT.unknown;
+        const info = statusInfo(s);
         const bits = [t.label];
         if (s.count) bits.push('×' + s.count);
-        if (s.status && s.status !== 'unknown') bits.push(s.status.replace('_', ' '));
         if (s.region) bits.push(s.region);
         const bearing = resolveBearing(s);
 
@@ -404,14 +455,15 @@
           going = `<div class="popup-dest">➤ Heading ${esc(s.heading || bearingWord(bearing))}</div>`;
         }
 
-        const alertBanner = s.status === 'alert'
-          ? `<div class="popup-alert">⚠ Region alert active</div>`
-          : '';
+        const statusLine =
+          `<div class="popup-status" style="color:${info.color}">● ${esc(info.label)}` +
+          `${info.level >= 3 ? ' — warning' : ''}</div>`;
 
         return `
           <div class="popup-title">${esc(s.location)}</div>
+          ${statusLine}
           <div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>
-          ${alertBanner}${going}
+          ${going}
           ${s.postText ? `<div class="popup-text">${esc(s.postText)}</div>` : ''}
           ${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}
         `;
@@ -436,6 +488,62 @@
 
       const layer = L.layerGroup().addTo(map);
 
+      // Build the live warnings list: active threats grouped by region, most
+      // severe and most recent first. Clicking an entry flies there.
+      function renderWarnings(sightings) {
+        const panel = document.getElementById('warnPanel');
+        const list = document.getElementById('warnList');
+        const title = document.getElementById('warnTitle');
+
+        const warns = sightings.filter((s) => statusInfo(s).warn);
+        if (!warns.length) { panel.style.display = 'none'; return; }
+
+        const groups = new Map();
+        for (const s of warns) {
+          const key = s.region || s.location || '—';
+          const info = statusInfo(s);
+          let g = groups.get(key);
+          if (!g) {
+            g = { key, level: 0, spots: 0, latest: 0, latlng: [s.lat, s.lon], label: info.label, color: info.color };
+            groups.set(key, g);
+          }
+          g.spots++;
+          const t = Date.parse(s.timestamp || '') || 0;
+          if (t > g.latest) g.latest = t;
+          if (info.level > g.level) {
+            g.level = info.level; g.label = info.label; g.color = info.color; g.latlng = [s.lat, s.lon];
+          }
+        }
+
+        const arr = [...groups.values()]
+          .sort((a, b) => b.level - a.level || b.latest - a.latest)
+          .slice(0, 14);
+        const danger = arr.some((g) => g.level >= 3);
+
+        panel.className = 'warn-panel' + (danger ? ' danger' : '');
+        panel.style.display = 'block';
+        title.textContent = `Active warnings (${groups.size})`;
+
+        list.innerHTML = '';
+        for (const g of arr) {
+          const ago = g.latest ? fmtTime(new Date(g.latest).toISOString()) : '';
+          const row = document.createElement('div');
+          row.className = 'warn-item';
+          row.innerHTML =
+            `<span class="warn-sev" style="background:${g.color}"></span>` +
+            `<span class="warn-body">` +
+            `<span class="warn-region">${esc(g.key)}</span>` +
+            `<span class="warn-meta">${esc(g.label)} · ${g.spots} spot${g.spots > 1 ? 's' : ''}${ago ? ' · ' + ago : ''}</span>` +
+            `</span>`;
+          row.addEventListener('click', () => {
+            if (typeof g.latlng[0] === 'number') {
+              map.flyTo(g.latlng, Math.max(map.getZoom(), 8), { duration: 0.6 });
+            }
+          });
+          list.appendChild(row);
+        }
+      }
+
       async function load() {
         try {
           const res = await fetch('data/sightings.json?t=' + Date.now());
@@ -452,22 +560,20 @@
 
           layer.clearLayers();
           const pts = [];
-          let moving = 0;
-          let alerts = 0;
 
           for (const s of sightings) {
-            const color = (THREAT[s.threatType] || THREAT.unknown).color;
+            const info = statusInfo(s);
+            const color = info.color;
 
-            // Translucent alert circle for region-wide alerts
-            if (s.status === 'alert') {
-              alerts++;
+            // Translucent danger circle for region-wide danger / impacts.
+            if (info.level >= 3) {
               L.circle([s.lat, s.lon], {
                 radius: 45000,
-                color: '#ff9f3d',
-                fillColor: '#ff9f3d',
-                fillOpacity: 0.06,
+                color,
+                fillColor: color,
+                fillOpacity: 0.07,
                 weight: 1,
-                opacity: 0.3,
+                opacity: 0.35,
                 dashArray: '5 5',
               }).addTo(layer);
             }
@@ -488,7 +594,6 @@
               }
             }
             if (lineEnd) {
-              moving++;
               L.polyline([[s.lat, s.lon], lineEnd], {
                 color, weight: 2.5, opacity: 0.55, dashArray: '7 6',
               }).addTo(layer);
@@ -508,14 +613,20 @@
 
           if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 9 });
 
+          renderWarnings(sightings);
+
           const when = data.updatedAt ? fmtTime(data.updatedAt) : '—';
           let statusText;
           if (!sightings.length) {
             statusText = `no sightings in last hour · updated ${when}`;
           } else {
+            const danger = sightings.filter((s) => statusInfo(s).level >= 3).length;
+            const inbound = sightings.filter((s) => statusInfo(s).level === 2).length;
+            const intercepted = sightings.filter((s) => s.status === 'shot_down').length;
             const parts = [`${sightings.length} active`];
-            if (moving) parts.push(`${moving} with direction`);
-            if (alerts) parts.push(`${alerts} region alerts`);
+            if (danger) parts.push(`${danger} danger`);
+            if (inbound) parts.push(`${inbound} inbound`);
+            if (intercepted) parts.push(`${intercepted} intercepted`);
             parts.push(when);
             statusText = parts.join(' · ');
           }
