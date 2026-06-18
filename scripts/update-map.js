@@ -22,7 +22,7 @@ const path = require('path');
 
 const { fetchChannelPosts } = require('../src/services/telegram');
 const { OpenRouterClient } = require('../src/services/openrouter');
-const { Geocoder } = require('../src/services/geocode');
+const { Geocoder, normalizeKey } = require('../src/services/geocode');
 
 const DOCS_DATA = path.join(__dirname, '..', 'docs', 'data', 'sightings.json');
 const CHANNEL = process.env.TELEGRAM_CHANNEL || 'radarrussiia';
@@ -136,6 +136,47 @@ function isInRegion(lat, lon) {
   return lat >= 38 && lat <= 78 && lon >= 18 && lon <= 195;
 }
 
+// Pull a place name out of a free-text heading like "towards Moscow".
+function destFromHeading(heading) {
+  if (!heading) return '';
+  const m = heading.toString().match(/^\s*towards?\s+(.+)/i);
+  return m ? m[1].split(',')[0].trim() : '';
+}
+
+// Where a sighting is heading (explicit field or parsed from the heading text).
+function sightingDestination(s) {
+  return (s.destination && s.destination.toString().trim()) || destFromHeading(s.heading);
+}
+
+// Remove "destination echo" markers: when one sighting in a post is heading
+// toward a place, a second sighting AT that place (from the same post) is the
+// LLM duplicating the destination as its own location. Drop those so a single
+// event shows one group with an arrow, not two groups.
+function dropDestinationEchoes(sightings) {
+  const byPost = new Map();
+  for (const s of sightings) {
+    const key = s.postId != null ? s.postId : s.id;
+    if (!byPost.has(key)) byPost.set(key, []);
+    byPost.get(key).push(s);
+  }
+  const drop = new Set();
+  for (const group of byPost.values()) {
+    if (group.length < 2) continue;
+    for (const a of group) {
+      const aLoc = normalizeKey(a.location);
+      if (!aLoc) continue;
+      for (const b of group) {
+        if (a === b) continue;
+        if (normalizeKey(sightingDestination(b)) === aLoc) {
+          drop.add(a.id);
+          break;
+        }
+      }
+    }
+  }
+  return sightings.filter((s) => !drop.has(s.id));
+}
+
 async function main() {
   if (!API_KEY) {
     console.error('[update-map] OPENROUTER_API_KEY is required');
@@ -200,6 +241,8 @@ async function main() {
       // one, then derive a travel bearing (great-circle to the destination,
       // falling back to the compass heading).
       let destination = sighting.destination || null;
+      let destinationLat = null;
+      let destinationLon = null;
       let bearing = null;
 
       if (destination) {
@@ -209,6 +252,8 @@ async function main() {
         });
         // Only trust the geocoded destination if it lands in the expected region.
         if (destGeo && isInRegion(destGeo.lat, destGeo.lon)) {
+          destinationLat = destGeo.lat;
+          destinationLon = destGeo.lon;
           const b = bearingBetween(geo.lat, geo.lon, destGeo.lat, destGeo.lon);
           bearing = ((b % 360) + 360) % 360;
         } else if (destGeo) {
@@ -231,6 +276,8 @@ async function main() {
         count: sighting.count,
         heading: sighting.heading,
         destination,
+        destinationLat,
+        destinationLon,
         bearing,
         status: sighting.status,
         confidence: sighting.confidence,
@@ -250,7 +297,7 @@ async function main() {
   }
 
   const merged = backfillBearings(dedup([...state.sightings, ...newSightingObjs]));
-  const pruned = pruneOld(merged);
+  const pruned = dropDestinationEchoes(pruneOld(merged));
 
   const updatedLastPostId = { ...(state.lastPostId || {}), [CHANNEL]: maxSeenId };
   const output = {

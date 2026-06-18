@@ -97,17 +97,103 @@
         for (const w of Object.keys(COMPASS)) if (w.length > 2 && k.includes(w)) return COMPASS[w];
         return null;
       }
-      function resolveBearing(s) {
-        if (typeof s.bearing === 'number' && isFinite(s.bearing)) return s.bearing;
-        return headingToBearing(s.heading);
+      // Normalise a place name for matching (lowercase, ё→е, strip punctuation).
+      function normPlace(str) {
+        return (str || '')
+          .toString().toLowerCase().replace(/ё/g, 'е')
+          .replace(/[«»"'`.,()\-–—]/g, ' ').replace(/\s+/g, ' ').trim();
       }
 
-      // Extract place name from free-text headings the LLM may have produced
-      // (e.g. "towards Moscow") when the backend didn't post-process them.
+      // Extract a place name from free-text headings like "towards Moscow".
       function extractDestFromHeading(heading) {
         if (!heading) return null;
-        const m = heading.match(/^towards?\s+(.+)/i);
+        const m = heading.toString().match(/^\s*towards?\s+(.+)/i);
         return m ? m[1].split(',')[0].trim() : null;
+      }
+
+      // Curated coordinates for the destinations this channel names most often,
+      // so we can draw a real arrow to the place even when the backend hasn't
+      // geocoded it (e.g. older data that only said "towards Moscow").
+      const DEST_RAW = [
+        [55.7558, 37.6173, ['Moscow', 'Москва', 'Москву', 'Москвы', 'Moscow Oblast']],
+        [59.9343, 30.3351, ['Saint Petersburg', 'St Petersburg', 'Петербург', 'Санкт-Петербург']],
+        [50.4501, 30.5234, ['Kyiv', 'Kiev', 'Киев']],
+        [50.5997, 36.5983, ['Belgorod', 'Белгород']],
+        [51.7373, 36.1874, ['Kursk', 'Курск']],
+        [51.6608, 39.2003, ['Voronezh', 'Воронеж']],
+        [53.2436, 34.3634, ['Bryansk', 'Брянск']],
+        [47.2357, 39.7015, ['Rostov-on-Don', 'Rostov', 'Ростов']],
+        [45.0355, 38.9753, ['Krasnodar', 'Краснодар']],
+        [54.1931, 37.6173, ['Tula', 'Тула']],
+        [54.5293, 36.2754, ['Kaluga', 'Калуга']],
+        [52.9651, 36.0785, ['Oryol', 'Orel', 'Орёл', 'Орел']],
+        [52.6031, 39.5708, ['Lipetsk', 'Липецк']],
+        [52.7212, 41.4523, ['Tambov', 'Тамбов']],
+        [54.6269, 39.6916, ['Ryazan', 'Рязань']],
+        [54.7818, 32.0401, ['Smolensk', 'Смоленск']],
+        [56.8587, 35.9176, ['Tver', 'Тверь']],
+        [57.6261, 39.8845, ['Yaroslavl', 'Ярославль']],
+        [56.2965, 43.9361, ['Nizhny Novgorod', 'Нижний Новгород']],
+        [56.1290, 40.4070, ['Vladimir', 'Владимир']],
+        [51.5331, 46.0342, ['Saratov', 'Саратов']],
+        [51.4847, 46.1207, ['Engels', 'Энгельс']],
+        [48.7080, 44.5133, ['Volgograd', 'Волгоград']],
+        [44.6166, 33.5254, ['Sevastopol', 'Севастополь']],
+        [44.9521, 34.1024, ['Simferopol', 'Симферополь']],
+        [44.7239, 37.7708, ['Novorossiysk', 'Новороссийск']],
+        [47.2362, 38.8969, ['Taganrog', 'Таганрог']],
+        [55.8304, 49.0661, ['Kazan', 'Казань']],
+        [53.1959, 50.1002, ['Samara', 'Самара']],
+        [51.7682, 55.0969, ['Orenburg', 'Оренбург']],
+      ];
+      const DEST_COORDS = {};
+      for (const [lat, lon, names] of DEST_RAW) {
+        for (const nm of names) DEST_COORDS[normPlace(nm)] = [lat, lon];
+      }
+      function lookupDest(name) {
+        const k = normPlace(name);
+        if (!k) return null;
+        if (DEST_COORDS[k]) return DEST_COORDS[k];
+        const stripped = k
+          .replace(/\b(oblast|region|raion|district|city|krai|republic)\b/g, '')
+          .replace(/\s+/g, ' ').trim();
+        return stripped && DEST_COORDS[stripped] ? DEST_COORDS[stripped] : null;
+      }
+
+      // Where a sighting is heading, as coordinates: curated gazetteer first,
+      // then any coordinates the backend geocoded.
+      function resolveDestLatLon(s) {
+        const name = s.destination || extractDestFromHeading(s.heading);
+        if (name) {
+          const g = lookupDest(name);
+          if (g) return { lat: g[0], lon: g[1], name };
+        }
+        if (typeof s.destinationLat === 'number' && typeof s.destinationLon === 'number') {
+          return { lat: s.destinationLat, lon: s.destinationLon, name: name || '' };
+        }
+        return null;
+      }
+
+      // Great-circle initial bearing from point 1 to point 2 (0=N, clockwise).
+      function bearingTo(lat1, lon1, lat2, lon2) {
+        const toRad = (d) => (d * Math.PI) / 180;
+        const φ1 = toRad(lat1), φ2 = toRad(lat2), Δλ = toRad(lon2 - lon1);
+        const y = Math.sin(Δλ) * Math.cos(φ2);
+        const x = Math.cos(φ1) * Math.sin(φ2) - Math.sin(φ1) * Math.cos(φ2) * Math.cos(Δλ);
+        return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
+      }
+
+      // True when the destination is meaningfully away from the sighting.
+      function destIsElsewhere(s, dest) {
+        return dest && typeof s.lat === 'number' &&
+          (Math.abs(dest.lat - s.lat) > 0.05 || Math.abs(dest.lon - s.lon) > 0.05);
+      }
+
+      function resolveBearing(s) {
+        if (typeof s.bearing === 'number' && isFinite(s.bearing)) return s.bearing;
+        const dest = resolveDestLatLon(s);
+        if (destIsElsewhere(s, dest)) return bearingTo(s.lat, s.lon, dest.lat, dest.lon);
+        return headingToBearing(s.heading);
       }
 
       // Compute destination lat/lon from start point + bearing + distance (km).
@@ -121,6 +207,34 @@
         const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(d) * Math.cos(φ1),
                                     Math.cos(d) - Math.sin(φ1) * Math.sin(φ2));
         return [φ2 * 180 / Math.PI, λ2 * 180 / Math.PI];
+      }
+
+      // Drop "destination echo" markers: if one sighting in a post heads toward
+      // a place, a second sighting AT that place (same post) is the model
+      // duplicating the destination — so one event shows one group, not two.
+      function sightingDest(s) {
+        return s.destination || extractDestFromHeading(s.heading) || '';
+      }
+      function dropDestinationEchoes(list) {
+        const byPost = new Map();
+        for (const s of list) {
+          const k = s.postId != null ? s.postId : s.id;
+          if (!byPost.has(k)) byPost.set(k, []);
+          byPost.get(k).push(s);
+        }
+        const drop = new Set();
+        for (const group of byPost.values()) {
+          if (group.length < 2) continue;
+          for (const a of group) {
+            const aLoc = normPlace(a.location);
+            if (!aLoc) continue;
+            for (const b of group) {
+              if (a === b) continue;
+              if (normPlace(sightingDest(b)) === aLoc) { drop.add(a.id); break; }
+            }
+          }
+        }
+        return list.filter((s) => !drop.has(s.id));
       }
 
       function esc(s) {
@@ -186,116 +300,73 @@
         return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s);
       }
 
-      // Formation layouts. Both return local pixel offsets centred on the
-      // origin. For the wedge, "forward" is -y so the tip leads in the travel
-      // direction; the whole group is later rotated to the bearing.
-      function wedgeLocal(n, gap, maxW) {
-        const pts = [];
-        let placed = 0, row = 0;
-        while (placed < n) {
-          const inRow = Math.min(row + 1, maxW, n - placed);
-          const startX = -((inRow - 1) / 2) * gap;
-          for (let c = 0; c < inRow; c++) pts.push([startX + c * gap, row * gap]);
-          placed += inRow;
-          row++;
-        }
-        const ys = pts.map((p) => p[1]);
-        const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
-        return pts.map(([x, y]) => [x, y - midY]); // centre vertically
-      }
-      function cloudLocal(n, gap) {
-        if (n <= 1) return [[0, 0]];
-        const pts = [];
-        const golden = Math.PI * (3 - Math.sqrt(5)); // sunflower packing
-        const c = gap * 0.62;
-        for (let i = 0; i < n; i++) {
-          const r = c * Math.sqrt(i + 0.5);
-          const th = i * golden;
-          pts.push([r * Math.cos(th), r * Math.sin(th)]);
-        }
-        return pts;
-      }
-
-      // Build the marker icon: one drone glyph per object. When the swarm is
-      // heading somewhere, the glyphs fan out into a wedge along the bearing so
-      // it reads as a moving formation rather than one stacked group; the
-      // leading arrow (and the 200 km map line) both point to the destination.
+      // Build the marker icon: a single threat glyph with a count label beside
+      // it and a travel arrow rotated to the bearing. One icon per sighting —
+      // the number says how many, the arrow says where it's going.
       function buildIcon(s) {
         const t = THREAT[s.threatType] || THREAT.unknown;
         const color = t.color;
         const bearing = resolveBearing(s);
         const isAlert = s.status === 'alert';
         const count = Math.max(1, s.count || 1);
-        const cap = 30;
-        const n = Math.min(count, cap);
-        const extra = count - n;
 
-        // Shrink the glyphs as the swarm grows so the icon stays bounded.
-        const scale = Math.max(0.42, 0.9 - n * 0.02);
+        const scale = 1.05;
         const glyphR = 7.8 * scale;
-        const gap = glyphR * 2 + 1.5;
+        const showCount = count > 1;
+        const label = '×' + count;
+        const fs = 12.5;
+        const labelW = showCount ? label.length * 7 + 12 : 0;
+        const labelGap = 6;
+        const labelHalf = showCount ? 10 : 0;
+        const ringR = isAlert ? glyphR + 4 : glyphR;
+        const arrowReach = bearing !== null ? glyphR + 22 : 0;
+        const m = 5;
 
-        const local = bearing !== null && n > 1
-          ? wedgeLocal(n, gap, 6)
-          : cloudLocal(n, gap);
+        // Pad each side for the largest thing that can reach there.
+        const leftPad = Math.max(ringR, arrowReach);
+        const topPad = Math.max(ringR, arrowReach, labelHalf);
+        const botPad = Math.max(ringR, arrowReach, labelHalf);
+        const rightPad = Math.max(ringR, arrowReach, glyphR + labelGap + labelW);
+        const Gx = leftPad + m, Gy = topPad + m;
+        const W = Math.ceil(leftPad + rightPad + 2 * m);
+        const H = Math.ceil(topPad + botPad + 2 * m);
 
-        // Rotation is about the centre, so the bounding radius holds at any
-        // bearing. Also track how far the formation's front reaches (toward -y).
-        let Rmax = 0, frontY = 0;
-        for (const [x, y] of local) {
-          Rmax = Math.max(Rmax, Math.hypot(x, y));
-          frontY = Math.max(frontY, -y);
-        }
-        Rmax += glyphR;
-        const arrowLen = bearing !== null ? Math.min(24, Math.max(14, gap + 8)) : 0;
-        const frontStart = bearing !== null ? frontY + glyphR + 2 : 0;
-        const backPad = extra > 0 ? 14 : 0;
-        const half = Math.ceil(Math.max(Rmax + backPad, frontStart + arrowLen) + 6);
-        const VB = half * 2, C = half;
+        const glyph = threatGlyph(s.threatType, Gx, Gy, color, scale);
 
-        // Drone glyphs.
-        let glyphs = '';
-        for (const [x, y] of local) {
-          glyphs += threatGlyph(s.threatType, C + x, C + y, color, scale);
-        }
-
-        // Leading travel arrow, drawn in the same group so it rotates too.
         let arrow = '';
         if (bearing !== null) {
-          const base = frontStart;
-          const head = base + arrowLen - 6;
-          const tip = base + arrowLen;
+          const base = glyphR + 3, head = glyphR + 16, tip = glyphR + 22;
           arrow =
-            `<line x1="${C}" y1="${C - base}" x2="${C}" y2="${C - head}" stroke="${color}" stroke-width="${Math.max(2.5, 3.4 * scale + 1)}" stroke-linecap="round"/>` +
-            `<polygon points="${C},${C - tip} ${C - 6},${C - head + 1} ${C + 6},${C - head + 1}" fill="${color}"/>`;
+            `<g transform="rotate(${bearing} ${Gx} ${Gy})">` +
+            `<line x1="${Gx}" y1="${Gy - base}" x2="${Gx}" y2="${Gy - head}" stroke="${color}" stroke-width="3" stroke-linecap="round"/>` +
+            `<polygon points="${Gx},${Gy - tip} ${Gx - 6},${Gy - head + 1} ${Gx + 6},${Gy - head + 1}" fill="${color}"/>` +
+            `</g>`;
         }
 
-        const movingGroup = bearing !== null
-          ? `<g transform="rotate(${bearing} ${C} ${C})">${arrow}${glyphs}</g>`
-          : glyphs;
-
-        // Pulse halo + alert ring sit unrotated behind the formation.
         const pulseColor = isAlert ? '#ff9f3d' : color;
-        const pulse = `<circle class="pulse" cx="${C}" cy="${C}" r="${Math.min(Rmax, glyphR + 5)}" fill="${pulseColor}"/>`;
+        const pulse = `<circle class="pulse" cx="${Gx}" cy="${Gy}" r="${glyphR}" fill="${pulseColor}"/>`;
         const alertRing = isAlert
-          ? `<circle class="pulse-alert" cx="${C}" cy="${C}" r="${Rmax + 2}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.75"/>`
+          ? `<circle class="pulse-alert" cx="${Gx}" cy="${Gy}" r="${glyphR + 4}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.75"/>`
           : '';
 
-        // Overflow marker only when the swarm exceeds the render cap.
-        const overflow = extra > 0
-          ? `<text x="${C}" y="${C + Rmax + 9}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="#cde0f5">+${extra}</text>`
-          : '';
+        let badge = '';
+        if (showCount) {
+          const bx = Gx + glyphR + labelGap;
+          badge =
+            `<rect x="${bx}" y="${Gy - 9}" width="${labelW}" height="18" rx="9" fill="#0d1b2a" stroke="${color}" stroke-width="1.5"/>` +
+            `<text x="${bx + labelW / 2}" y="${Gy + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="${fs}" font-weight="bold" fill="${color}">${label}</text>`;
+        }
 
         const svg =
-          `<svg xmlns="http://www.w3.org/2000/svg" width="${VB}" height="${VB}" viewBox="0 0 ${VB} ${VB}">` +
-          alertRing + pulse + movingGroup + overflow + `</svg>`;
+          `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">` +
+          alertRing + pulse + arrow + glyph + badge + `</svg>`;
 
         return L.divIcon({
           className: 'threat-icon',
           html: svg,
-          iconSize: [VB, VB],
-          iconAnchor: [C, C],
-          popupAnchor: [0, -(Rmax + 4)],
+          iconSize: [W, H],
+          iconAnchor: [Gx, Gy],
+          popupAnchor: [0, -(topPad + 2)],
         });
       }
 
@@ -371,11 +442,13 @@
           const data = await res.json();
           const cutoff = Date.now() - ONE_HOUR_MS;
 
-          const sightings = (data.sightings || []).filter((s) => {
+          const inWindow = (data.sightings || []).filter((s) => {
             if (typeof s.lat !== 'number' || typeof s.lon !== 'number') return false;
             const t = Date.parse(s.timestamp || '');
             return t && t >= cutoff;
           });
+          // Collapse destination-echo duplicates so one event is one group.
+          const sightings = dropDestinationEchoes(inWindow);
 
           layer.clearLayers();
           const pts = [];
@@ -383,7 +456,7 @@
           let alerts = 0;
 
           for (const s of sightings) {
-            const bearing = resolveBearing(s);
+            const color = (THREAT[s.threatType] || THREAT.unknown).color;
 
             // Translucent alert circle for region-wide alerts
             if (s.status === 'alert') {
@@ -399,23 +472,32 @@
               }).addTo(layer);
             }
 
-            // Direction line + arrowhead: 200 km along the computed bearing,
-            // tipped with an arrow pointing where the threat is heading.
-            if (bearing !== null) {
+            // Direction line + arrowhead. If we know the destination's actual
+            // coordinates, draw the arrow straight to it; otherwise project a
+            // 200 km stub along the bearing.
+            const dest = resolveDestLatLon(s);
+            let lineEnd = null, lineBearing = null;
+            if (destIsElsewhere(s, dest)) {
+              lineEnd = [dest.lat, dest.lon];
+              lineBearing = bearingTo(s.lat, s.lon, dest.lat, dest.lon);
+            } else {
+              const b = resolveBearing(s);
+              if (b !== null) {
+                lineEnd = destPoint(s.lat, s.lon, b, 200);
+                lineBearing = b;
+              }
+            }
+            if (lineEnd) {
               moving++;
-              const endPt = destPoint(s.lat, s.lon, bearing, 200);
-              const color = (THREAT[s.threatType] || THREAT.unknown).color;
-              L.polyline([[s.lat, s.lon], endPt], {
+              L.polyline([[s.lat, s.lon], lineEnd], {
                 color, weight: 2.5, opacity: 0.55, dashArray: '7 6',
               }).addTo(layer);
-              L.marker(endPt, {
-                icon: arrowheadIcon(bearing, color),
+              L.marker(lineEnd, {
+                icon: arrowheadIcon(lineBearing, color),
                 interactive: false,
                 keyboard: false,
               }).addTo(layer);
-            } else if (s.destination || extractDestFromHeading(s.heading)) {
-              // Has destination text but bearing not computed yet — count as moving
-              moving++;
+              pts.push(lineEnd);
             }
 
             L.marker([s.lat, s.lon], { icon: buildIcon(s) })
