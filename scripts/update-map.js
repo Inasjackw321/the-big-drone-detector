@@ -23,6 +23,9 @@ const path = require('path');
 const { fetchChannelPosts } = require('../src/services/telegram');
 const { OpenRouterClient } = require('../src/services/openrouter');
 const { Geocoder, normalizeKey } = require('../src/services/geocode');
+const { analyzePost } = require('../src/services/heuristic');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const DOCS_DATA = path.join(__dirname, '..', 'docs', 'data', 'sightings.json');
 const CHANNEL = process.env.TELEGRAM_CHANNEL || 'radarrussiia';
@@ -177,6 +180,34 @@ function dropDestinationEchoes(sightings) {
   return sightings.filter((s) => !drop.has(s.id));
 }
 
+// Fill in count/status the model left blank using the deterministic parser, so
+// "Фиксация от 5 БПЛА" reliably becomes count=5 and "Отбой" becomes all_clear.
+function backfillFromHeuristic(sightings, heur) {
+  if (!heur || !heur.isRelevant || !heur.sightings.length) return;
+  const heurCount = heur.sightings[0].count;
+  const heurStatus = heur.sightings[0].status;
+  for (const s of sightings) {
+    if ((s.count === null || s.count === undefined) && heurCount != null) s.count = heurCount;
+    if ((!s.status || s.status === 'unknown') && heurStatus && heurStatus !== 'unknown') {
+      s.status = heurStatus;
+    }
+  }
+}
+
+// Ask the model, retrying transient failures so a flaky call doesn't drop a
+// post. Returns null if every attempt failed.
+async function extractWithRetry(llm, post, attempts = 3) {
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      return await llm.extractSightings(post);
+    } catch (err) {
+      console.warn(`  [llm-retry ${i}/${attempts}] post ${post.postId}: ${err.message}`);
+      if (i < attempts) await sleep(i * 1500);
+    }
+  }
+  return null;
+}
+
 async function main() {
   if (!API_KEY) {
     console.error('[update-map] OPENROUTER_API_KEY is required');
@@ -214,18 +245,26 @@ async function main() {
   for (const post of newPosts) {
     maxSeenId = Math.max(maxSeenId, post.postId);
 
-    let extraction;
-    try {
-      extraction = await llm.extractSightings(post);
-    } catch (err) {
-      console.warn(`  [skip] post ${post.postId} LLM error: ${err.message}`);
-      continue;
+    const heur = analyzePost(post.text);
+    let extraction = await extractWithRetry(llm, post);
+
+    // Deterministic safety net: if the model gave nothing usable but the post
+    // clearly describes a threat we can locate, use the parsed result.
+    if (
+      (!extraction || !extraction.isRelevant || !extraction.sightings.length) &&
+      heur.isRelevant &&
+      heur.sightings.length
+    ) {
+      console.log(`  [heuristic] post ${post.postId} → ${heur.sightings.length} sighting(s)`);
+      extraction = heur;
     }
 
-    if (!extraction.isRelevant || !extraction.sightings.length) {
+    if (!extraction || !extraction.isRelevant || !extraction.sightings.length) {
       console.log(`  [irrelevant] post ${post.postId}`);
       continue;
     }
+
+    backfillFromHeuristic(extraction.sightings, heur);
 
     for (let sighting of extraction.sightings) {
       // Fix headings that contain place names instead of compass directions.
@@ -313,7 +352,20 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error('[update-map] fatal:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  main().catch((err) => {
+    console.error('[update-map] fatal:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = {
+  main,
+  backfillFromHeuristic,
+  extractWithRetry,
+  dropDestinationEchoes,
+  normalizeSightingDirection,
+  headingToBearing,
+  bearingBetween,
+  isInRegion,
+};
