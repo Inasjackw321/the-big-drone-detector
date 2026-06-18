@@ -41,6 +41,7 @@
       "buildResources": "build",
       "output": "dist"
     },
+    "asar": false,
     "files": [
       "src/**/*",
       "!**/*.test.js",

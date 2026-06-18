@@ -7,6 +7,8 @@ name: Build Windows app
 on:
   workflow_dispatch:
   push:
+    branches:
+      - claude/ecstatic-franklin-5a7n8n
     tags:
       - 'v*'
 
