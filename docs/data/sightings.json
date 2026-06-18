@@ -1627,10 +1627,54 @@
       "summary": "Russian air defense claims to have shot down 992 drones, 4 long-range cruise missiles, and 10 aerial bombs over the past 24 hours across Russia.",
       "timestamp": "2026-06-18T09:33:55+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76310:Tula Oblast",
+      "location": "Tula Oblast",
+      "locationRu": "Тульскую область",
+      "region": "Tula Oblast",
+      "lat": 54.1961,
+      "lon": 37.6182,
+      "geocodeSource": "llm",
+      "matchedName": "Tula Oblast",
+      "threatType": "drone",
+      "count": 20,
+      "heading": "towards Moscow",
+      "status": "approaching",
+      "confidence": 0.85,
+      "postId": 76310,
+      "postLink": "https://t.me/radarrussiia/76310",
+      "postText": "От 20 БПЛА через Тульскую область в направлении Москвы.\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-18T09:39:33+00:00",
+      "summary": "Approximately 20 UAVs reported transiting Tula Oblast heading towards Moscow.",
+      "timestamp": "2026-06-18T09:39:33+00:00",
+      "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76310:Moscow",
+      "location": "Moscow",
+      "locationRu": "Москвы",
+      "region": "Moscow",
+      "lat": 55.7558,
+      "lon": 37.6173,
+      "geocodeSource": "llm",
+      "matchedName": "Moscow",
+      "threatType": "drone",
+      "count": 20,
+      "heading": "towards Moscow",
+      "status": "approaching",
+      "confidence": 0.85,
+      "postId": 76310,
+      "postLink": "https://t.me/radarrussiia/76310",
+      "postText": "От 20 БПЛА через Тульскую область в направлении Москвы.\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-18T09:39:33+00:00",
+      "summary": "Approximately 20 UAVs reported transiting Tula Oblast heading towards Moscow.",
+      "timestamp": "2026-06-18T09:39:33+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76309
+    "radarrussiia": 76310
   },
-  "updatedAt": "2026-06-18T09:35:40.973Z"
+  "updatedAt": "2026-06-18T09:42:41.818Z"
 }
