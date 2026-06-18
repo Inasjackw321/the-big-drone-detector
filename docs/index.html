@@ -20,6 +20,7 @@
       .popup-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #fff; }
       .popup-meta  { color: #8ab0d0; font-size: 12px; margin-bottom: 3px; }
       .popup-dest  { color: #ffd27f; font-size: 12px; margin-bottom: 3px; }
+      .popup-alert { color: #ff9f3d; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
       .popup-text  {
         font-size: 12px; max-height: 75px; overflow-y: auto; white-space: pre-wrap;
         border-top: 1px solid #2d4a6a; padding-top: 6px; margin-top: 6px; color: #c0d8ee;
@@ -48,9 +49,10 @@
 
       .threat-icon { background: none; border: none; }
       .threat-icon svg { overflow: visible; }
-      /* gentle pulse on the moving ones */
       .threat-icon .pulse { animation: ping 2.4s ease-out infinite; transform-origin: center; }
+      .threat-icon .pulse-alert { animation: ping-alert 2s ease-out infinite; transform-origin: center; }
       @keyframes ping { 0% { opacity: 0.5; } 70%,100% { opacity: 0; transform: scale(2.4); } }
+      @keyframes ping-alert { 0% { opacity: 0.6; } 70%,100% { opacity: 0; transform: scale(1.8); } }
     </style>
   </head>
   <body>
@@ -79,7 +81,6 @@
         unknown:           { label: 'Unknown',           color: '#8aa8c8', sym: '●' },
       };
 
-      // frontend fallback: compass word -> degrees (0=N, clockwise)
       const COMPASS = {
         n:0,north:0,север:0, ne:45,'north-east':45,northeast:45,'северо-восток':45,
         e:90,east:90,восток:90, se:135,'south-east':135,southeast:135,'юго-восток':135,
@@ -98,6 +99,27 @@
         return headingToBearing(s.heading);
       }
 
+      // Extract place name from free-text headings the LLM may have produced
+      // (e.g. "towards Moscow") when the backend didn't post-process them.
+      function extractDestFromHeading(heading) {
+        if (!heading) return null;
+        const m = heading.match(/^towards?\s+(.+)/i);
+        return m ? m[1].split(',')[0].trim() : null;
+      }
+
+      // Compute destination lat/lon from start point + bearing + distance (km).
+      function destPoint(lat, lon, bearing, distKm) {
+        const R = 6371;
+        const d = distKm / R;
+        const φ1 = lat * Math.PI / 180;
+        const λ1 = lon * Math.PI / 180;
+        const θ = bearing * Math.PI / 180;
+        const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(θ));
+        const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(d) * Math.cos(φ1),
+                                    Math.cos(d) - Math.sin(φ1) * Math.sin(φ2));
+        return [φ2 * 180 / Math.PI, λ2 * 180 / Math.PI];
+      }
+
       function esc(s) {
         return (s || '').replace(/[&<>"']/g, (c) =>
           ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
@@ -111,15 +133,18 @@
         if (diff < 60) return diff + 'm ago';
         return Math.round(diff / 60) + 'h ago';
       }
+      function bearingWord(b) {
+        const dirs = ['N','NE','E','SE','S','SW','W','NW'];
+        return dirs[Math.round(b / 45) % 8];
+      }
 
-      // Build an SVG icon: a cluster of badges (one per object, capped) plus a
-      // travel arrow rotated to the bearing when the destination/heading is known.
       function buildIcon(s) {
         const t = THREAT[s.threatType] || THREAT.unknown;
         const bearing = resolveBearing(s);
+        const isAlert = s.status === 'alert';
         const n = Math.max(1, Math.min(s.count || 1, 3));
         const extra = (s.count || 1) > 3 ? (s.count - 3) : 0;
-        const C = 32; // centre
+        const C = 32; // SVG centre
         const R = 9;  // badge radius
         const spacing = 15;
         const startX = C - ((n - 1) * spacing) / 2;
@@ -127,8 +152,9 @@
         let badges = '';
         for (let i = 0; i < n; i++) {
           const x = startX + i * spacing;
+          const strokeColor = isAlert ? '#ff9f3d' : t.color;
           badges +=
-            `<circle cx="${x}" cy="${C}" r="${R}" fill="#0d1b2a" stroke="${t.color}" stroke-width="2.5"/>` +
+            `<circle cx="${x}" cy="${C}" r="${R}" fill="#0d1b2a" stroke="${strokeColor}" stroke-width="2.5"/>` +
             `<text x="${x}" y="${C + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="${t.color}">${t.sym}</text>`;
         }
         if (extra > 0) {
@@ -137,10 +163,16 @@
             `<text x="${x}" y="${C + 4}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="#cde0f5">+${extra}</text>`;
         }
 
-        // soft pulse ring under the first badge
-        const pulse = `<circle class="pulse" cx="${startX}" cy="${C}" r="${R}" fill="${t.color}"/>`;
+        // Pulse ring: amber for alerts, threat-color otherwise
+        const pulseColor = isAlert ? '#ff9f3d' : t.color;
+        const pulse = `<circle class="pulse" cx="${startX}" cy="${C}" r="${R}" fill="${pulseColor}"/>`;
 
-        // travel arrow (only when we know which way it's going)
+        // Extra animated ring for alert-status sightings
+        const alertRing = isAlert
+          ? `<circle class="pulse-alert" cx="${C}" cy="${C}" r="${R + 5}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.7"/>`
+          : '';
+
+        // Travel arrow rotated to bearing (pointing away from the badge cluster)
         let arrow = '';
         if (bearing !== null) {
           arrow =
@@ -152,7 +184,7 @@
 
         const svg =
           `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">` +
-          pulse + arrow + badges + `</svg>`;
+          alertRing + pulse + arrow + badges + `</svg>`;
 
         return L.divIcon({
           className: 'threat-icon',
@@ -170,20 +202,28 @@
         if (s.status && s.status !== 'unknown') bits.push(s.status.replace('_', ' '));
         if (s.region) bits.push(s.region);
         const bearing = resolveBearing(s);
+
+        // Resolve destination display text: explicit field > extracted from heading
+        const destName = s.destination || extractDestFromHeading(s.heading);
+
         let going = '';
-        if (s.destination) going = 'Heading toward ' + esc(s.destination);
-        else if (bearing !== null) going = 'Heading ' + esc(s.heading || bearingWord(bearing));
+        if (destName) {
+          going = `<div class="popup-dest">➤ Heading toward ${esc(destName)}</div>`;
+        } else if (bearing !== null) {
+          going = `<div class="popup-dest">➤ Heading ${esc(s.heading || bearingWord(bearing))}</div>`;
+        }
+
+        const alertBanner = s.status === 'alert'
+          ? `<div class="popup-alert">⚠ Region alert active</div>`
+          : '';
+
         return `
           <div class="popup-title">${esc(s.location)}</div>
           <div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>
-          ${going ? `<div class="popup-dest">➤ ${going}</div>` : ''}
+          ${alertBanner}${going}
           ${s.postText ? `<div class="popup-text">${esc(s.postText)}</div>` : ''}
           ${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}
         `;
-      }
-      function bearingWord(b) {
-        const dirs = ['N','NE','E','SE','S','SW','W','NW'];
-        return dirs[Math.round(b / 45) % 8];
       }
 
       // dark tiles
@@ -220,18 +260,37 @@
           layer.clearLayers();
           const pts = [];
           let moving = 0;
+          let alerts = 0;
+
           for (const s of sightings) {
             const bearing = resolveBearing(s);
 
-            // Draw a dashed line toward the destination when we have its coords.
-            if (typeof s.destinationLat === 'number' && typeof s.destinationLon === 'number') {
-              const color = (THREAT[s.threatType] || THREAT.unknown).color;
-              L.polyline([[s.lat, s.lon], [s.destinationLat, s.destinationLon]], {
-                color, weight: 2, opacity: 0.6, dashArray: '6 6',
+            // Translucent alert circle for region-wide alerts
+            if (s.status === 'alert') {
+              alerts++;
+              L.circle([s.lat, s.lon], {
+                radius: 45000,
+                color: '#ff9f3d',
+                fillColor: '#ff9f3d',
+                fillOpacity: 0.06,
+                weight: 1,
+                opacity: 0.3,
+                dashArray: '5 5',
               }).addTo(layer);
-              pts.push([s.destinationLat, s.destinationLon]);
             }
-            if (bearing !== null || s.destination) moving++;
+
+            // Direction line: fixed 200 km in the bearing direction
+            if (bearing !== null) {
+              moving++;
+              const endPt = destPoint(s.lat, s.lon, bearing, 200);
+              const color = (THREAT[s.threatType] || THREAT.unknown).color;
+              L.polyline([[s.lat, s.lon], endPt], {
+                color, weight: 2, opacity: 0.5, dashArray: '8 5',
+              }).addTo(layer);
+            } else if (s.destination || extractDestFromHeading(s.heading)) {
+              // Has destination text but bearing not computed yet — count as moving
+              moving++;
+            }
 
             L.marker([s.lat, s.lon], { icon: buildIcon(s) })
               .bindPopup(popupHtml(s), { maxWidth: 280 })
@@ -242,9 +301,17 @@
           if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 9 });
 
           const when = data.updatedAt ? fmtTime(data.updatedAt) : '—';
-          document.getElementById('count').textContent = sightings.length
-            ? `${sightings.length} in last hour · ${moving} with direction · ${when}`
-            : `no sightings in last hour · updated ${when}`;
+          let statusText;
+          if (!sightings.length) {
+            statusText = `no sightings in last hour · updated ${when}`;
+          } else {
+            const parts = [`${sightings.length} active`];
+            if (moving) parts.push(`${moving} with direction`);
+            if (alerts) parts.push(`${alerts} region alerts`);
+            parts.push(when);
+            statusText = parts.join(' · ');
+          }
+          document.getElementById('count').textContent = statusText;
         } catch {
           document.getElementById('count').textContent = 'failed to load';
         }

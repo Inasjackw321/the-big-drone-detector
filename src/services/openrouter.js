@@ -35,7 +35,10 @@ Return STRICT JSON only (no markdown, no commentary) matching this schema:
 Rules:
 - If the post is not about an aerial threat (ads, chat, unrelated news), set is_relevant=false and sightings=[].
 - Prefer the most specific place mentioned. If only a region is given, use the region as the location.
-- Pay close attention to MOVEMENT. If the post says where a threat is going ("курс на X", "в сторону X", "движется/летит/направляется на X", "направление — север", etc.), fill "destination" with the target place and/or "heading" with the compass direction. Leave both null only when no movement is described.
+- Pay close attention to MOVEMENT:
+  * "destination" = the PLACE NAME the threat is moving toward (English name). Extract from phrases like "курс на X", "в сторону X", "движется/летит/направляется на X", "в направлении X", "в направлении Москвы" → "Moscow". Leave null only when no destination place is mentioned.
+  * "heading" = the compass direction ONLY. Must be EXACTLY one of: "north","north-east","east","south-east","south","south-west","west","north-west". Derive it from explicit direction words ("north", "север", "восток", etc.) or from knowing which direction the destination city is from the sighting. NEVER put place names in heading. If you cannot determine a compass direction with confidence, set heading to null.
+  * Examples: "в направлении Москвы" from Тула → destination="Moscow", heading="north". "курс на восток" → heading="east". "в сторону Курска" from Белгород → destination="Kursk", heading="north".
 - Only fill lat/lon when you are genuinely confident of the coordinates; otherwise null and the app will geocode.
 - Never invent locations or directions that are not in the post.
 - Output JSON only.`;
