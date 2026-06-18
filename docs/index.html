@@ -186,76 +186,116 @@
         return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s);
       }
 
-      // Build the marker icon: a swarm of one glyph per object (capped, with an
-      // exact count badge), a pulse halo, an alert ring, and a travel arrow.
+      // Formation layouts. Both return local pixel offsets centred on the
+      // origin. For the wedge, "forward" is -y so the tip leads in the travel
+      // direction; the whole group is later rotated to the bearing.
+      function wedgeLocal(n, gap, maxW) {
+        const pts = [];
+        let placed = 0, row = 0;
+        while (placed < n) {
+          const inRow = Math.min(row + 1, maxW, n - placed);
+          const startX = -((inRow - 1) / 2) * gap;
+          for (let c = 0; c < inRow; c++) pts.push([startX + c * gap, row * gap]);
+          placed += inRow;
+          row++;
+        }
+        const ys = pts.map((p) => p[1]);
+        const midY = (Math.min(...ys) + Math.max(...ys)) / 2;
+        return pts.map(([x, y]) => [x, y - midY]); // centre vertically
+      }
+      function cloudLocal(n, gap) {
+        if (n <= 1) return [[0, 0]];
+        const pts = [];
+        const golden = Math.PI * (3 - Math.sqrt(5)); // sunflower packing
+        const c = gap * 0.62;
+        for (let i = 0; i < n; i++) {
+          const r = c * Math.sqrt(i + 0.5);
+          const th = i * golden;
+          pts.push([r * Math.cos(th), r * Math.sin(th)]);
+        }
+        return pts;
+      }
+
+      // Build the marker icon: one drone glyph per object. When the swarm is
+      // heading somewhere, the glyphs fan out into a wedge along the bearing so
+      // it reads as a moving formation rather than one stacked group; the
+      // leading arrow (and the 200 km map line) both point to the destination.
       function buildIcon(s) {
         const t = THREAT[s.threatType] || THREAT.unknown;
         const color = t.color;
         const bearing = resolveBearing(s);
         const isAlert = s.status === 'alert';
         const count = Math.max(1, s.count || 1);
-        const VB = 72, C = 36;
-        const cap = 6;
+        const cap = 30;
         const n = Math.min(count, cap);
+        const extra = count - n;
 
-        // Lay the glyphs out: single in the centre, otherwise a tidy ring.
+        // Shrink the glyphs as the swarm grows so the icon stays bounded.
+        const scale = Math.max(0.42, 0.9 - n * 0.02);
+        const glyphR = 7.8 * scale;
+        const gap = glyphR * 2 + 1.5;
+
+        const local = bearing !== null && n > 1
+          ? wedgeLocal(n, gap, 6)
+          : cloudLocal(n, gap);
+
+        // Rotation is about the centre, so the bounding radius holds at any
+        // bearing. Also track how far the formation's front reaches (toward -y).
+        let Rmax = 0, frontY = 0;
+        for (const [x, y] of local) {
+          Rmax = Math.max(Rmax, Math.hypot(x, y));
+          frontY = Math.max(frontY, -y);
+        }
+        Rmax += glyphR;
+        const arrowLen = bearing !== null ? Math.min(24, Math.max(14, gap + 8)) : 0;
+        const frontStart = bearing !== null ? frontY + glyphR + 2 : 0;
+        const backPad = extra > 0 ? 14 : 0;
+        const half = Math.ceil(Math.max(Rmax + backPad, frontStart + arrowLen) + 6);
+        const VB = half * 2, C = half;
+
+        // Drone glyphs.
         let glyphs = '';
-        let clusterR;
-        if (n === 1) {
-          clusterR = 8;
-          glyphs = threatGlyph(s.threatType, C, C, color, 1);
-        } else {
-          clusterR = 8 + n;                 // 10 … 14
-          const gscale = 0.78;
-          for (let i = 0; i < n; i++) {
-            const ang = ((-90 + i * (360 / n)) * Math.PI) / 180;
-            const gx = C + clusterR * Math.cos(ang);
-            const gy = C + clusterR * Math.sin(ang);
-            glyphs += threatGlyph(s.threatType, gx, gy, color, gscale);
-          }
+        for (const [x, y] of local) {
+          glyphs += threatGlyph(s.threatType, C + x, C + y, color, scale);
         }
 
-        // Pulse halo (amber when a region alert is active).
-        const pulseColor = isAlert ? '#ff9f3d' : color;
-        const pulse = `<circle class="pulse" cx="${C}" cy="${C}" r="9" fill="${pulseColor}"/>`;
-        const alertRing = isAlert
-          ? `<circle class="pulse-alert" cx="${C}" cy="${C}" r="${clusterR + 4}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.75"/>`
-          : '';
-
-        // Travel arrow: starts just beyond the cluster, points along the bearing.
+        // Leading travel arrow, drawn in the same group so it rotates too.
         let arrow = '';
         if (bearing !== null) {
-          const base = clusterR + 4;
-          const head = base + 9;
-          const tip = base + 17;
+          const base = frontStart;
+          const head = base + arrowLen - 6;
+          const tip = base + arrowLen;
           arrow =
-            `<g transform="rotate(${bearing} ${C} ${C})">` +
-            `<line x1="${C}" y1="${C - base}" x2="${C}" y2="${C - head}" stroke="${color}" stroke-width="3.2" stroke-linecap="round"/>` +
-            `<polygon points="${C},${C - tip} ${C - 6},${C - head + 1} ${C + 6},${C - head + 1}" fill="${color}"/>` +
-            `</g>`;
+            `<line x1="${C}" y1="${C - base}" x2="${C}" y2="${C - head}" stroke="${color}" stroke-width="${Math.max(2.5, 3.4 * scale + 1)}" stroke-linecap="round"/>` +
+            `<polygon points="${C},${C - tip} ${C - 6},${C - head + 1} ${C + 6},${C - head + 1}" fill="${color}"/>`;
         }
 
-        // Exact count badge, bottom-right, drawn last so it stays readable.
-        let badge = '';
-        if (count > 1) {
-          const bx = C + 18, by = C + 18;
-          const label = String(count);
-          const r = label.length >= 2 ? 9.5 : 8;
-          badge =
-            `<circle cx="${bx}" cy="${by}" r="${r}" fill="${color}" stroke="#0d1b2a" stroke-width="1.6"/>` +
-            `<text x="${bx}" y="${by + 3.6}" text-anchor="middle" font-family="Arial,sans-serif" font-size="10.5" font-weight="bold" fill="#0d1b2a">${label}</text>`;
-        }
+        const movingGroup = bearing !== null
+          ? `<g transform="rotate(${bearing} ${C} ${C})">${arrow}${glyphs}</g>`
+          : glyphs;
+
+        // Pulse halo + alert ring sit unrotated behind the formation.
+        const pulseColor = isAlert ? '#ff9f3d' : color;
+        const pulse = `<circle class="pulse" cx="${C}" cy="${C}" r="${Math.min(Rmax, glyphR + 5)}" fill="${pulseColor}"/>`;
+        const alertRing = isAlert
+          ? `<circle class="pulse-alert" cx="${C}" cy="${C}" r="${Rmax + 2}" fill="none" stroke="#ff9f3d" stroke-width="2" opacity="0.75"/>`
+          : '';
+
+        // Overflow marker only when the swarm exceeds the render cap.
+        const overflow = extra > 0
+          ? `<text x="${C}" y="${C + Rmax + 9}" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" fill="#cde0f5">+${extra}</text>`
+          : '';
 
         const svg =
           `<svg xmlns="http://www.w3.org/2000/svg" width="${VB}" height="${VB}" viewBox="0 0 ${VB} ${VB}">` +
-          alertRing + pulse + arrow + glyphs + badge + `</svg>`;
+          alertRing + pulse + movingGroup + overflow + `</svg>`;
 
         return L.divIcon({
           className: 'threat-icon',
           html: svg,
           iconSize: [VB, VB],
           iconAnchor: [C, C],
-          popupAnchor: [0, -26],
+          popupAnchor: [0, -(Rmax + 4)],
         });
       }
 
