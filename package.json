@@ -10,11 +10,11 @@
     "cli": "node src/cli.js",
     "test": "node --test",
     "icon": "node scripts/make-icon.js",
-    "dist": "electron-builder",
-    "dist:win": "electron-builder --win nsis portable",
-    "dist:win:dir": "electron-builder --win dir",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux AppImage"
+    "dist": "electron-builder --publish never",
+    "dist:win": "electron-builder --win nsis portable --publish never",
+    "dist:win:dir": "electron-builder --win dir --publish never",
+    "dist:mac": "electron-builder --mac --publish never",
+    "dist:linux": "electron-builder --linux AppImage --publish never"
   },
   "keywords": [
     "drone",
