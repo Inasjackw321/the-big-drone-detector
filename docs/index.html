@@ -7,46 +7,72 @@
     <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      html, body { height: 100%; font-family: -apple-system, "Segoe UI", Arial, sans-serif; }
+      html, body { height: 100%; background: #0d1b2a; }
       #map { position: absolute; inset: 0; }
 
+      /* override Leaflet's default white popup with dark theme */
+      .leaflet-popup-content-wrapper {
+        background: #1a2d42;
+        color: #e0eaf5;
+        border-radius: 10px;
+        box-shadow: 0 4px 20px rgba(0,0,0,0.6);
+        border: 1px solid #2d4a6a;
+      }
+      .leaflet-popup-tip { background: #1a2d42; }
+      .leaflet-popup-content { margin: 12px 14px; font-size: 13px; line-height: 1.5; }
+
+      .popup-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #fff; }
+      .popup-meta  { color: #8ab0d0; font-size: 12px; margin-bottom: 3px; }
+      .popup-text  {
+        font-size: 12px; max-height: 75px; overflow-y: auto;
+        white-space: pre-wrap; border-top: 1px solid #2d4a6a;
+        padding-top: 6px; margin-top: 6px; color: #c0d8ee;
+      }
+      .popup-link  { margin-top: 7px; }
+      .popup-link a { color: #5aafff; font-size: 12px; text-decoration: none; }
+      .popup-link a:hover { text-decoration: underline; }
+
+      /* top bar */
       .bar {
         position: absolute;
-        top: 10px; left: 50%; transform: translateX(-50%);
+        top: 12px; left: 50%; transform: translateX(-50%);
         z-index: 1000;
-        background: rgba(255, 255, 255, 0.92);
-        padding: 7px 16px;
-        border-radius: 20px;
-        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        background: rgba(13, 27, 42, 0.88);
+        color: #cde0f5;
+        padding: 8px 18px;
+        border-radius: 24px;
+        border: 1px solid #2d4a6a;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.5);
         font-size: 13px;
         white-space: nowrap;
-        color: #222;
+        backdrop-filter: blur(6px);
       }
-      .bar a { color: #0077cc; text-decoration: none; }
+      .bar b { color: #fff; }
+      .bar a { color: #5aafff; text-decoration: none; }
       .bar a:hover { text-decoration: underline; }
-
-      .icon-marker {
-        font-size: 20px;
-        line-height: 1;
-        text-shadow: 0 1px 4px rgba(0,0,0,0.5);
-        cursor: pointer;
+      .bar .dot {
+        display: inline-block; width: 7px; height: 7px;
+        border-radius: 50%; background: #3fd87f;
+        margin-right: 5px; vertical-align: middle;
+        animation: blink 2s ease-in-out infinite;
+      }
+      @keyframes blink {
+        0%,100% { opacity: 1; } 50% { opacity: 0.3; }
       }
 
-      .popup b { display: block; font-size: 14px; margin-bottom: 4px; }
-      .popup .meta { color: #666; font-size: 12px; margin-bottom: 4px; }
-      .popup .text {
-        font-size: 12px; max-height: 70px; overflow-y: auto;
-        white-space: pre-wrap; border-top: 1px solid #eee; padding-top: 4px;
-      }
-      .popup a { color: #0077cc; }
+      /* custom map icon container */
+      .map-icon { position: relative; }
     </style>
   </head>
   <body>
     <div id="map"></div>
 
     <div class="bar">
-      🛰️ <b>The Big Drone Detector</b> &nbsp;·&nbsp;
-      <span id="count">Loading…</span> &nbsp;·&nbsp;
+      <span class="dot"></span>
+      <b>The Big Drone Detector</b>
+      &nbsp;·&nbsp;
+      <span id="count">loading…</span>
+      &nbsp;·&nbsp;
       <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
     </div>
 
@@ -54,89 +80,128 @@
     <script>
       'use strict';
 
-      // Icon emoji per threat type
-      const ICONS = {
-        drone:              '🚁',
-        missile:            '🚀',
-        cruise_missile:     '🚀',
-        ballistic_missile:  '🚀',
-        air_defense:        '🛡️',
-        explosion:          '💥',
-        unknown:            '❓',
-      };
-      const LABELS = {
-        drone: 'Drone / UAV', missile: 'Missile', cruise_missile: 'Cruise missile',
-        ballistic_missile: 'Ballistic missile', air_defense: 'Air defense',
-        explosion: 'Explosion', unknown: 'Unknown',
+      const ONE_HOUR_MS = 60 * 60 * 1000;
+
+      const THREAT = {
+        drone:             { label: 'Drone / UAV',      color: '#ff5c5c', sym: '✈' },
+        missile:           { label: 'Missile',           color: '#ff9f3d', sym: '▲' },
+        cruise_missile:    { label: 'Cruise missile',    color: '#ff9f3d', sym: '▲' },
+        ballistic_missile: { label: 'Ballistic missile', color: '#ff6a00', sym: '▲' },
+        air_defense:       { label: 'Air defense',       color: '#4fb6ff', sym: '◉' },
+        explosion:         { label: 'Explosion',         color: '#ffd23d', sym: '✦' },
+        unknown:           { label: 'Unknown',           color: '#8aa8c8', sym: '?' },
       };
 
-      // OpenStreetMap tiles via Carto (open-source friendly, clean light style)
-      const map = L.map('map').setView([55.0, 40.0], 5);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
-        attribution:
-          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
-          '© <a href="https://carto.com/attributions">CARTO</a>',
-      }).addTo(map);
-
-      const layer = L.layerGroup().addTo(map);
-
-      function esc(s) {
-        return (s || '').replace(/[&<>"']/g, (c) => (
-          { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
-        ));
-      }
-
-      function makeIcon(type) {
+      function makeSvgIcon(type) {
+        const { color, sym } = THREAT[type] || THREAT.unknown;
+        // Pin shape: circle on top of a pointed triangle
+        const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="30" height="38" viewBox="0 0 30 38">
+          <defs>
+            <filter id="s" x="-30%" y="-30%" width="160%" height="160%">
+              <feDropShadow dx="0" dy="2" stdDeviation="2" flood-color="rgba(0,0,0,0.55)"/>
+            </filter>
+          </defs>
+          <path d="M15 0C6.7 0 0 6.7 0 15c0 5.6 3 10.4 7.5 13L15 38l7.5-10C27 25.4 30 20.6 30 15 30 6.7 23.3 0 15 0z"
+                fill="${color}" filter="url(#s)"/>
+          <circle cx="15" cy="15" r="9" fill="rgba(0,0,0,0.25)"/>
+          <text x="15" y="20" text-anchor="middle" font-family="Arial,sans-serif"
+                font-size="11" font-weight="bold" fill="#fff">${sym}</text>
+        </svg>`;
         return L.divIcon({
-          className: 'icon-marker',
-          html: ICONS[type] || ICONS.unknown,
-          iconSize: [24, 24],
-          iconAnchor: [12, 12],
-          popupAnchor: [0, -14],
+          className: 'map-icon',
+          html: svg,
+          iconSize: [30, 38],
+          iconAnchor: [15, 38],
+          popupAnchor: [0, -40],
         });
       }
 
-      function popupHtml(s) {
-        const bits = [LABELS[s.threatType] || s.threatType];
-        if (s.count) bits.push('×' + s.count);
-        if (s.region) bits.push(s.region);
-        let html = `<div class="popup"><b>${esc(s.location)}</b>`;
-        html += `<div class="meta">${esc(bits.filter(Boolean).join(' · '))}</div>`;
-        if (s.postText) html += `<div class="text">${esc(s.postText)}</div>`;
-        if (s.postLink) {
-          html += `<div style="margin-top:6px">` +
-            `<a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open Telegram post ↗</a></div>`;
-        }
-        return html + '</div>';
+      function esc(s) {
+        return (s || '').replace(/[&<>"']/g, (c) =>
+          ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c])
+        );
       }
+
+      function fmtTime(iso) {
+        if (!iso) return '';
+        const d = new Date(iso);
+        if (isNaN(d)) return '';
+        const diff = Math.round((Date.now() - d) / 60000);
+        if (diff < 1) return 'just now';
+        if (diff < 60) return `${diff}m ago`;
+        return `${Math.round(diff/60)}h ago`;
+      }
+
+      function popupHtml(s) {
+        const t = THREAT[s.threatType] || THREAT.unknown;
+        const bits = [t.label];
+        if (s.count) bits.push('×' + s.count);
+        if (s.status && s.status !== 'unknown') bits.push(s.status.replace('_', ' '));
+        if (s.region) bits.push(s.region);
+        return `
+          <div class="popup-title">${esc(s.location)}</div>
+          <div class="popup-meta">${esc(bits.join(' · '))}  ·  ${fmtTime(s.timestamp)}</div>
+          ${s.postText ? `<div class="popup-text">${esc(s.postText)}</div>` : ''}
+          ${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}
+        `;
+      }
+
+      // Dark CartoDB tiles
+      const map = L.map('map', { zoomControl: true }).setView([55.0, 40.0], 5);
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution: '© <a href="https://www.openstreetmap.org/copyright" style="color:#5aafff">OpenStreetMap</a> © <a href="https://carto.com/attributions" style="color:#5aafff">CARTO</a>',
+      }).addTo(map);
+
+      // Style the Leaflet zoom control for dark theme
+      document.addEventListener('DOMContentLoaded', () => {
+        const style = document.createElement('style');
+        style.textContent = `
+          .leaflet-control-zoom a {
+            background: #1a2d42 !important; color: #cde0f5 !important;
+            border-color: #2d4a6a !important;
+          }
+          .leaflet-control-zoom a:hover { background: #243f5e !important; }
+          .leaflet-control-attribution { background: rgba(13,27,42,0.7) !important; color: #8aa8c8 !important; }
+          .leaflet-control-attribution a { color: #5aafff !important; }
+        `;
+        document.head.appendChild(style);
+      });
+
+      const layer = L.layerGroup().addTo(map);
 
       async function load() {
         try {
           const res = await fetch('data/sightings.json?t=' + Date.now());
           const data = await res.json();
-          const sightings = (data.sightings || []).filter(
-            (s) => typeof s.lat === 'number' && typeof s.lon === 'number'
-          );
+          const cutoff = Date.now() - ONE_HOUR_MS;
+
+          const sightings = (data.sightings || []).filter((s) => {
+            if (typeof s.lat !== 'number' || typeof s.lon !== 'number') return false;
+            const t = Date.parse(s.timestamp || '');
+            return t && t >= cutoff;
+          });
 
           layer.clearLayers();
           const pts = [];
           for (const s of sightings) {
-            L.marker([s.lat, s.lon], { icon: makeIcon(s.threatType) })
-              .bindPopup(popupHtml(s))
+            L.marker([s.lat, s.lon], { icon: makeSvgIcon(s.threatType) })
+              .bindPopup(popupHtml(s), { maxWidth: 280 })
               .addTo(layer);
             pts.push([s.lat, s.lon]);
           }
 
-          if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 8 });
+          if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 9 });
 
           const when = data.updatedAt
-            ? new Date(data.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            ? fmtTime(data.updatedAt)
             : '—';
-          document.getElementById('count').textContent =
-            sightings.length + ' sighting' + (sightings.length === 1 ? '' : 's') + ' · updated ' + when;
+          const el = document.getElementById('count');
+          el.textContent = sightings.length
+            ? `${sightings.length} sighting${sightings.length === 1 ? '' : 's'} in last hour · ${when}`
+            : `no sightings in last hour · updated ${when}`;
         } catch {
-          document.getElementById('count').textContent = 'Failed to load data';
+          document.getElementById('count').textContent = 'failed to load';
         }
       }
 
