@@ -11,75 +11,48 @@
       crossorigin=""
     />
     <style>
-      * { box-sizing: border-box; }
-      html, body { margin: 0; height: 100%; }
-      body {
-        font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-      }
-      /* Full-screen map */
-      #map { position: absolute; inset: 0; background: #aadaff; }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; font-family: -apple-system, "Segoe UI", Arial, sans-serif; }
+      #map { position: absolute; inset: 0; }
 
-      /* Floating title bar */
       .bar {
         position: absolute;
-        top: 10px;
-        left: 10px;
+        top: 10px; left: 50%; transform: translateX(-50%);
         z-index: 1000;
-        background: rgba(15, 25, 38, 0.85);
-        color: #e6eef7;
-        padding: 8px 14px;
-        border-radius: 8px;
-        font-size: 14px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-        max-width: calc(100% - 20px);
+        background: rgba(255, 255, 255, 0.92);
+        padding: 7px 16px;
+        border-radius: 20px;
+        box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        font-size: 13px;
+        white-space: nowrap;
+        color: #222;
       }
-      .bar b { font-size: 15px; }
-      .bar .sub { font-size: 12px; opacity: 0.8; margin-top: 2px; }
-      .bar a { color: #6cc0ff; text-decoration: none; }
+      .bar a { color: #0077cc; text-decoration: none; }
       .bar a:hover { text-decoration: underline; }
 
-      /* Legend */
-      .legend {
-        position: absolute;
-        bottom: 18px;
-        left: 10px;
-        z-index: 1000;
-        background: rgba(15, 25, 38, 0.85);
-        color: #e6eef7;
-        padding: 8px 12px;
-        border-radius: 8px;
-        font-size: 12px;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
-      }
-      .legend .row { display: flex; align-items: center; gap: 6px; margin: 2px 0; }
-      .legend .swatch {
-        width: 11px; height: 11px; border-radius: 50%; display: inline-block;
+      .icon-marker {
+        font-size: 20px;
+        line-height: 1;
+        text-shadow: 0 1px 4px rgba(0,0,0,0.5);
+        cursor: pointer;
       }
 
-      .popup b { font-size: 14px; }
-      .popup .meta { color: #555; font-size: 12px; margin: 4px 0; }
+      .popup b { display: block; font-size: 14px; margin-bottom: 4px; }
+      .popup .meta { color: #666; font-size: 12px; margin-bottom: 4px; }
       .popup .text {
-        font-size: 12px; max-height: 80px; overflow-y: auto;
-        white-space: pre-wrap; border-top: 1px solid #ddd; padding-top: 4px; margin-top: 4px;
+        font-size: 12px; max-height: 70px; overflow-y: auto;
+        white-space: pre-wrap; border-top: 1px solid #eee; padding-top: 4px;
       }
+      .popup a { color: #0077cc; }
     </style>
   </head>
   <body>
     <div id="map"></div>
 
     <div class="bar">
-      <b>🛰️ The Big Drone Detector</b>
-      <div class="sub">
-        <span id="count">Loading…</span> · source:
-        <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
-      </div>
-    </div>
-
-    <div class="legend">
-      <div class="row"><span class="swatch" style="background:#ff5c5c"></span> Drone</div>
-      <div class="row"><span class="swatch" style="background:#ff8a3d"></span> Missile</div>
-      <div class="row"><span class="swatch" style="background:#4fb6ff"></span> Air defense</div>
-      <div class="row"><span class="swatch" style="background:#ffd23d"></span> Explosion</div>
+      🛰️ <b>The Big Drone Detector</b> &nbsp;·&nbsp;
+      <span id="count">Loading…</span> &nbsp;·&nbsp;
+      <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
     </div>
 
     <script
@@ -90,33 +63,32 @@
     <script>
       'use strict';
 
-      const COLORS = {
-        drone: '#ff5c5c',
-        missile: '#ff8a3d',
-        cruise_missile: '#ff8a3d',
-        ballistic_missile: '#ff6a00',
-        air_defense: '#4fb6ff',
-        explosion: '#ffd23d',
-        unknown: '#9fb3c8',
+      // Icon emoji per threat type
+      const ICONS = {
+        drone:              '🚁',
+        missile:            '🚀',
+        cruise_missile:     '🚀',
+        ballistic_missile:  '🚀',
+        air_defense:        '🛡️',
+        explosion:          '💥',
+        unknown:            '❓',
       };
       const LABELS = {
-        drone: 'Drone / UAV',
-        missile: 'Missile',
-        cruise_missile: 'Cruise missile',
-        ballistic_missile: 'Ballistic missile',
-        air_defense: 'Air defense',
-        explosion: 'Explosion',
-        unknown: 'Unknown',
+        drone: 'Drone / UAV', missile: 'Missile', cruise_missile: 'Cruise missile',
+        ballistic_missile: 'Ballistic missile', air_defense: 'Air defense',
+        explosion: 'Explosion', unknown: 'Unknown',
       };
 
-      // Basic map
+      // OpenStreetMap tiles via Carto (open-source friendly, clean light style)
       const map = L.map('map').setView([55.0, 40.0], 5);
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 18,
-        attribution: '© OpenStreetMap contributors',
+      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        maxZoom: 19,
+        attribution:
+          '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors ' +
+          '© <a href="https://carto.com/attributions">CARTO</a>',
       }).addTo(map);
 
-      let layer = L.layerGroup().addTo(map);
+      const layer = L.layerGroup().addTo(map);
 
       function esc(s) {
         return (s || '').replace(/[&<>"']/g, (c) => (
@@ -124,7 +96,17 @@
         ));
       }
 
-      function popup(s) {
+      function makeIcon(type) {
+        return L.divIcon({
+          className: 'icon-marker',
+          html: ICONS[type] || ICONS.unknown,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+          popupAnchor: [0, -14],
+        });
+      }
+
+      function popupHtml(s) {
         const bits = [LABELS[s.threatType] || s.threatType];
         if (s.count) bits.push('×' + s.count);
         if (s.region) bits.push(s.region);
@@ -132,7 +114,8 @@
         html += `<div class="meta">${esc(bits.filter(Boolean).join(' · '))}</div>`;
         if (s.postText) html += `<div class="text">${esc(s.postText)}</div>`;
         if (s.postLink) {
-          html += `<div style="margin-top:6px"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open Telegram post ↗</a></div>`;
+          html += `<div style="margin-top:6px">` +
+            `<a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open Telegram post ↗</a></div>`;
         }
         return html + '</div>';
       }
@@ -148,30 +131,25 @@
           layer.clearLayers();
           const pts = [];
           for (const s of sightings) {
-            const color = COLORS[s.threatType] || COLORS.unknown;
-            const m = L.circleMarker([s.lat, s.lon], {
-              radius: 8,
-              color,
-              weight: 2,
-              fillColor: color,
-              fillOpacity: 0.6,
-            }).bindPopup(popup(s));
-            layer.addLayer(m);
+            L.marker([s.lat, s.lon], { icon: makeIcon(s.threatType) })
+              .bindPopup(popupHtml(s))
+              .addTo(layer);
             pts.push([s.lat, s.lon]);
           }
 
-          if (pts.length) map.fitBounds(pts, { padding: [40, 40], maxZoom: 8 });
+          if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 8 });
 
-          const when = data.updatedAt ? new Date(data.updatedAt).toLocaleString() : '—';
+          const when = data.updatedAt
+            ? new Date(data.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            : '—';
           document.getElementById('count').textContent =
             sightings.length + ' sighting' + (sightings.length === 1 ? '' : 's') + ' · updated ' + when;
-        } catch (err) {
+        } catch {
           document.getElementById('count').textContent = 'Failed to load data';
         }
       }
 
       load();
-      // Refresh the map every 2 minutes
       setInterval(load, 2 * 60 * 1000);
     </script>
   </body>
