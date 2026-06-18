@@ -1,0 +1,13 @@
+node_modules/
+dist/
+out/
+.env
+*.log
+.DS_Store
+# Runtime data written by the app
+userData/
+src/data/runtime-*.json
+
+# QA artifacts
+demo-screenshot.png
+*.png.tmp
