@@ -87,6 +87,40 @@ function cleanLocation(s) {
     .trim();
 }
 
+// MoD-style recap totals ("over the past night air defense destroyed 216 UAVs
+// over the territories of Belgorod, Bryansk … oblasts", "с 8:00 до 14:00 …").
+// These are summaries, not specific sightings — don't map them.
+function isInterceptionRecap(text) {
+  if (!text) return false;
+  const t = text.toLowerCase();
+  const destroyed = /(уничтожен|сбит|перехвач|ликвидир|отражен|destroyed|intercepted|shot down)/.test(t);
+  if (!destroyed) return false;
+  const m =
+    t.match(/(\d{1,4})\s*(?:бпла|дрон\w*|безпілотн\w*|шахед\w*|uav|drone)/) ||
+    t.match(/(?:уничтожен\w*|сбит\w*|перехвач\w*|destroyed|intercepted)\D{0,14}(\d{1,4})/);
+  const total = m ? parseInt(m[1], 10) : 0;
+  const times = (t.match(/\b\d{1,2}[:.]\d{2}\b/g) || []).length;
+  const recapPhrase =
+    /над\s+территор|over the territ|минобороны|ministry of def|за\s+(минувш|прошедш|истекш|сутки|ночь|вчера|день)|over the past (night|day|24)/.test(t) ||
+    times >= 2;
+  return total >= 10 && recapPhrase;
+}
+
+// Generic / non-mappable "locations" (seas, whole countries, vague terms).
+const BLOCKED_LOCATIONS = new Set([
+  'russia', 'russian federation', 'ukraine', 'belarus', 'border', 'frontline',
+  'unknown', 'various', 'multiple', 'na', 'n/a',
+  'россия', 'российская федерация', 'украина', 'беларусь', 'граница', 'неизвестно',
+]);
+function isBlockedLocation(name) {
+  const k = (name || '').toString().toLowerCase().replace(/ё/g, 'е').replace(/[.,"'»«]/g, '').trim();
+  if (!k) return true;
+  if (BLOCKED_LOCATIONS.has(k)) return true;
+  // Water bodies — a "Black Sea" sighting isn't a place on land.
+  if (/(^|\s)(море|sea|ocean|океан|залив|gulf|bay)(\s|$)/.test(k)) return true;
+  return false;
+}
+
 // A real place name is short and capitalised — this rejects free-form prose
 // (e.g. "Один за другим пересекают стык ... области") from becoming a location.
 function isPlaceLike(c) {
@@ -114,6 +148,7 @@ function meaningfulLines(text) {
 function analyzePost(text) {
   const out = { isRelevant: false, summary: '', sightings: [] };
   if (!text || (!DRONE_RE.test(text) && !MISSILE_RE.test(text))) return out;
+  if (isInterceptionRecap(text)) return out; // a totals recap, not a sighting
 
   out.isRelevant = true;
   const threatType = detectThreatType(text);
@@ -141,12 +176,12 @@ function analyzePost(text) {
     }
   }
 
-  // Locations are the remaining, non-region chunks.
+  // Locations are the remaining, non-region chunks (minus junk like seas).
   let locations = chunks.filter((c) => c !== region && !REGION_RE.test(c)).map(cleanLocation);
-  locations = [...new Set(locations.filter(Boolean))];
+  locations = [...new Set(locations.filter((l) => l && !isBlockedLocation(l)))];
 
   // A region-wide post (no specific town) still maps to the region centroid.
-  if (locations.length === 0 && region) locations = [cleanLocation(region)];
+  if (locations.length === 0 && region && !isBlockedLocation(region)) locations = [cleanLocation(region)];
   if (locations.length === 0) return out; // threat post but no locatable place
 
   // A count alongside several places is ambiguous (usually a total), so only
@@ -178,4 +213,6 @@ module.exports = {
   detectDestination,
   detectThreatType,
   cleanLocation,
+  isInterceptionRecap,
+  isBlockedLocation,
 };

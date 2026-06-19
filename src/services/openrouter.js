@@ -35,6 +35,8 @@ Return STRICT JSON only (no markdown, no commentary) matching this schema:
 
 Rules:
 - If the post is not about an aerial threat (ads, chat, unrelated news), set is_relevant=false and sightings=[].
+- RECAP TOTALS: if the post is a Ministry-of-Defense-style summary of totals over a period (e.g. "over the past night air defense destroyed 216 UAVs over the territories of Belgorod, Bryansk, Kursk … oblasts", or a time range like "from 8:00 to 14:00 … destroyed N UAVs"), it is NOT a specific sighting — set is_relevant=false and sightings=[].
+- NEVER use a sea, body of water, or whole country as a location ("Black Sea", "Sea of Azov", "Russia", "Ukraine"). Only real settlements, raions, oblasts, or airbases. If no such place is given, omit that sighting.
 - Prefer the most specific place mentioned. If only a region is given, use the region as the location.
 - Pay close attention to MOVEMENT:
   * "destination" = the PLACE NAME the threat is moving toward (English name). Extract from phrases like "курс на X", "в сторону X", "движется/летит/направляется на X", "в направлении X", "в направлении Москвы" → "Moscow". Leave null only when no destination place is mentioned.
