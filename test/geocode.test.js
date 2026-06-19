@@ -31,12 +31,26 @@ test('resolves Cyrillic names and declensions via aliases', async () => {
   assert.equal(r2.matchedName, 'Engels');
 });
 
-test('trusts confident LLM-provided coordinates', async () => {
+test('uses LLM coordinates only as a fallback for unknown places', async () => {
   const g = makeGeocoder();
   const r = await g.resolve({ location: 'Nowhere', lat: 55.0, lon: 60.0 });
   assert.equal(r.source, 'llm');
   assert.equal(r.lat, 55.0);
   assert.equal(r.lon, 60.0);
+  assert.equal(r.precision, 'point');
+});
+
+test('prefers the curated gazetteer over LLM-guessed coordinates', async () => {
+  const g = makeGeocoder();
+  const r = await g.resolve({ location: 'Voronezh', lat: 10, lon: 10 });
+  assert.equal(r.source, 'gazetteer'); // not the model's bogus (10,10)
+  assert.ok(Math.abs(r.lat - 51.66) < 0.1);
+});
+
+test('rejects LLM coordinates that fall outside the region', async () => {
+  const g = makeGeocoder(); // Nominatim disabled
+  const r = await g.resolve({ location: 'Nowhere', lat: 10, lon: 10 });
+  assert.equal(r, null);
 });
 
 test('falls back to region centroid when only a region is known', async () => {
