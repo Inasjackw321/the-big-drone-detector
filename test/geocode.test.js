@@ -53,6 +53,15 @@ test('rejects LLM coordinates that fall outside the region', async () => {
   assert.equal(r, null);
 });
 
+test('resolves major Ukrainian cities from the gazetteer', async () => {
+  const g = makeGeocoder();
+  const kyiv = await g.resolve({ location: 'Kyiv' });
+  assert.equal(kyiv.source, 'gazetteer');
+  assert.ok(Math.abs(kyiv.lat - 50.45) < 0.1 && Math.abs(kyiv.lon - 30.52) < 0.1);
+  const kharkiv = await g.resolve({ location: 'Харків' });
+  assert.equal(kharkiv.matchedName, 'Kharkiv');
+});
+
 test('falls back to region centroid when only a region is known', async () => {
   const g = makeGeocoder();
   const r = await g.resolve({

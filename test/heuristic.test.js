@@ -68,6 +68,12 @@ test('free-form prose is relevant but yields no fake location', () => {
   assert.equal(r.sightings.length, 0);
 });
 
+test('does not attach a count to multi-location posts (likely a total)', () => {
+  const r = analyzePost('Чехов, Серпухов, Коломна, Московская область - фіксація 6 БПЛА.' + FOOTER);
+  assert.ok(r.sightings.length >= 2);
+  assert.ok(r.sightings.every((s) => s.count === null));
+});
+
 test('region-only post maps to the region', () => {
   const r = analyzePost('Ростовская область\nОтбой опасности по БПЛА' + FOOTER);
   assert.equal(r.sightings.length, 1);
@@ -90,4 +96,27 @@ test('detectCount handles "от N" and bare "N БПЛА"', () => {
 test('cleanLocation removes prefixes but keeps district names', () => {
   assert.equal(cleanLocation('МО Раменское'), 'Раменское');
   assert.equal(cleanLocation('Жуковский район'), 'Жуковский район');
+});
+
+// --- Ukrainian (kpszsu) support ---
+
+test('maps Ukrainian status wording', () => {
+  assert.equal(detectStatus('Збито 12 ворожих шахедів'), 'shot_down');
+  assert.equal(detectStatus('Відбій повітряної тривоги'), 'all_clear');
+  assert.equal(detectStatus('Загроза застосування ударних БпЛА'), 'alert'); // "ударних" must NOT be impact
+  assert.equal(detectStatus('БпЛА курсом на Дніпро'), 'approaching');
+  assert.equal(detectStatus('Зафіксовано приліт у місті'), 'impact');
+});
+
+test('extracts a Ukrainian destination after "курсом на"', () => {
+  assert.equal(detectDestination('БпЛА курсом на Дніпро'), 'Дніпро');
+  assert.equal(detectDestination('Шахеди у напрямку Києва'), 'Києва');
+});
+
+test('recognises Shahed posts as drone activity', () => {
+  const r = analyzePost('Харківська область — загроза застосування ударних БпЛА.');
+  assert.equal(r.isRelevant, true);
+  assert.equal(r.sightings[0].threatType, 'drone');
+  assert.equal(r.sightings[0].region, 'Харківська область');
+  assert.equal(r.sightings[0].status, 'alert');
 });

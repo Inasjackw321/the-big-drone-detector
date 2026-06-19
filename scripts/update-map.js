@@ -11,7 +11,7 @@
  *   OPENROUTER_API_KEY=sk-or-... node scripts/update-map.js
  *
  * Optional env vars:
- *   TELEGRAM_CHANNEL      default: radarrussiia
+ *   TELEGRAM_CHANNELS     default: radarrussiia,kpszsu  (comma-separated)
  *   OPENROUTER_MODEL      default: openrouter/owl-alpha
  *   DDX_RETENTION_HOURS   default: 48
  *   DDX_MAX_NEW_POSTS     default: 30  (cap per run to stay within rate limits)
@@ -28,7 +28,12 @@ const { analyzePost } = require('../src/services/heuristic');
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const DOCS_DATA = path.join(__dirname, '..', 'docs', 'data', 'sightings.json');
-const CHANNEL = process.env.TELEGRAM_CHANNEL || 'radarrussiia';
+// One or more channels (comma-separated). radarrussiia = threats over Russia;
+// kpszsu = Ukrainian Air Force, reporting Russian strikes on Ukraine.
+const CHANNELS = (process.env.TELEGRAM_CHANNELS || process.env.TELEGRAM_CHANNEL || 'radarrussiia,kpszsu')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
 const MODEL = process.env.OPENROUTER_MODEL || 'openrouter/owl-alpha';
 const RETENTION_MS = (parseInt(process.env.DDX_RETENTION_HOURS || '48', 10)) * 3600 * 1000;
 const MAX_NEW_POSTS = parseInt(process.env.DDX_MAX_NEW_POSTS || '30', 10);
@@ -158,7 +163,8 @@ function sightingDestination(s) {
 function dropDestinationEchoes(sightings) {
   const byPost = new Map();
   for (const s of sightings) {
-    const key = s.postId != null ? s.postId : s.id;
+    // Key by channel + post so the same post number on two channels never merges.
+    const key = s.postId != null ? `${s.channel || ''}/${s.postId}` : s.id;
     if (!byPost.has(key)) byPost.set(key, []);
     byPost.get(key).push(s);
   }
@@ -186,12 +192,29 @@ function backfillFromHeuristic(sightings, heur) {
   if (!heur || !heur.isRelevant || !heur.sightings.length) return;
   const heurCount = heur.sightings[0].count;
   const heurStatus = heur.sightings[0].status;
+  // Only attribute a count to a LONE sighting — a number alongside several
+  // places is ambiguous (often a total), so don't stamp it on each.
+  const single = sightings.length === 1;
   for (const s of sightings) {
-    if ((s.count === null || s.count === undefined) && heurCount != null) s.count = heurCount;
+    if (single && (s.count === null || s.count === undefined) && heurCount != null) {
+      s.count = heurCount;
+    }
     if ((!s.status || s.status === 'unknown') && heurStatus && heurStatus !== 'unknown') {
       s.status = heurStatus;
     }
   }
+}
+
+// A single post that lists one big number across MANY areas is a TOTAL, not a
+// per-location count (e.g. "133 UAVs over Belgorod, Bryansk, Kaluga … oblasts").
+// Don't stamp that number on every marker.
+function stripSummaryCounts(sightings) {
+  if (sightings.length < 3) return sightings;
+  const counts = sightings.map((s) => s.count).filter((c) => typeof c === 'number');
+  if (counts.length >= 3 && new Set(counts).size === 1 && counts[0] >= 10) {
+    for (const s of sightings) s.count = null;
+  }
+  return sightings;
 }
 
 // Ask the model, retrying transient failures so a flaky call doesn't drop a
@@ -208,6 +231,101 @@ async function extractWithRetry(llm, post, attempts = 3) {
   return null;
 }
 
+// Turn one post into geocoded sighting objects (LLM with heuristic fallback).
+async function processPost(post, channel, llm, geocoder) {
+  const out = [];
+  const heur = analyzePost(post.text);
+  let extraction = await extractWithRetry(llm, post);
+
+  // Deterministic safety net: if the model gave nothing usable but the post
+  // clearly describes a threat we can locate, use the parsed result.
+  if (
+    (!extraction || !extraction.isRelevant || !extraction.sightings.length) &&
+    heur.isRelevant &&
+    heur.sightings.length
+  ) {
+    console.log(`  [heuristic] post ${post.postId} → ${heur.sightings.length} sighting(s)`);
+    extraction = heur;
+  }
+
+  if (!extraction || !extraction.isRelevant || !extraction.sightings.length) {
+    console.log(`  [irrelevant] post ${post.postId}`);
+    return out;
+  }
+
+  backfillFromHeuristic(extraction.sightings, heur);
+  stripSummaryCounts(extraction.sightings);
+
+  for (let sighting of extraction.sightings) {
+    // Fix headings that contain place names instead of compass directions.
+    sighting = normalizeSightingDirection(sighting);
+
+    const geo = await geocoder.resolve(sighting);
+    if (!geo) {
+      console.log(`  [no-geo] ${sighting.location} in post ${post.postId}`);
+      continue;
+    }
+
+    // Resolve where it's going: geocode the destination if the post named
+    // one, then derive a travel bearing (great-circle to the destination,
+    // falling back to the compass heading).
+    let destination = sighting.destination || null;
+    let destinationLat = null;
+    let destinationLon = null;
+    let bearing = null;
+
+    if (destination) {
+      const destGeo = await geocoder.resolve({
+        location: destination,
+        region: '', // don't bias by sighting region — destination may be a different region
+      });
+      // Only trust the geocoded destination if it lands in the expected region.
+      if (destGeo && isInRegion(destGeo.lat, destGeo.lon)) {
+        destinationLat = destGeo.lat;
+        destinationLon = destGeo.lon;
+        const b = bearingBetween(geo.lat, geo.lon, destGeo.lat, destGeo.lon);
+        bearing = ((b % 360) + 360) % 360;
+      } else if (destGeo) {
+        console.log(`  [bad-dest-geo] ${destination} resolved outside region (${destGeo.lat},${destGeo.lon})`);
+      }
+    }
+    if (bearing === null) bearing = headingToBearing(sighting.heading);
+
+    out.push({
+      id: `${post.id}:${sighting.location}`,
+      location: sighting.location,
+      locationRu: sighting.locationRu || '',
+      region: sighting.region || '',
+      lat: geo.lat,
+      lon: geo.lon,
+      geocodeSource: geo.source,
+      geocodePrecision: geo.precision || 'point',
+      matchedName: geo.matchedName,
+      threatType: sighting.threatType,
+      count: sighting.count,
+      heading: sighting.heading,
+      destination,
+      destinationLat,
+      destinationLon,
+      bearing,
+      status: sighting.status,
+      confidence: sighting.confidence,
+      postId: post.postId,
+      postLink: post.link,
+      postText: (post.text || '').slice(0, 400),
+      postDate: post.date,
+      summary: extraction.summary,
+      timestamp: post.date || new Date().toISOString(),
+      channel,
+    });
+    const arrow = bearing !== null ? `→${Math.round(bearing)}°` : 'no-dir';
+    console.log(
+      `  📍 [@${channel}] ${sighting.location} (${sighting.region}) [${sighting.threatType}] ${arrow}${destination ? ' → ' + destination : ''}`
+    );
+  }
+  return out;
+}
+
 async function main() {
   if (!API_KEY) {
     console.error('[update-map] OPENROUTER_API_KEY is required');
@@ -215,141 +333,58 @@ async function main() {
   }
 
   const state = loadState();
-  const lastPostId = (state.lastPostId || {})[CHANNEL] || 0;
-  console.log(`[update-map] channel=@${CHANNEL}  lastPostId=${lastPostId}`);
-
-  let posts;
-  try {
-    posts = await fetchChannelPosts({ channel: CHANNEL });
-  } catch (err) {
-    console.error('[update-map] failed to fetch Telegram posts:', err.message);
-    process.exit(1);
-  }
-
-  const newPosts = posts
-    .filter((p) => p.postId > lastPostId && p.text)
-    .slice(-MAX_NEW_POSTS);
-  console.log(`[update-map] ${posts.length} posts fetched, ${newPosts.length} new to process`);
-
-  if (newPosts.length === 0) {
-    console.log('[update-map] nothing new — exiting without writing');
-    return;
-  }
-
+  const lastPostId = { ...(state.lastPostId || {}) };
   const llm = new OpenRouterClient({ apiKey: API_KEY, model: MODEL });
   const geocoder = new Geocoder();
 
-  let maxSeenId = lastPostId;
   const newSightingObjs = [];
+  let anyNewPosts = false;
 
-  for (const post of newPosts) {
-    maxSeenId = Math.max(maxSeenId, post.postId);
+  for (const channel of CHANNELS) {
+    const last = lastPostId[channel] || 0;
+    console.log(`[update-map] channel=@${channel}  lastPostId=${last}`);
 
-    const heur = analyzePost(post.text);
-    let extraction = await extractWithRetry(llm, post);
-
-    // Deterministic safety net: if the model gave nothing usable but the post
-    // clearly describes a threat we can locate, use the parsed result.
-    if (
-      (!extraction || !extraction.isRelevant || !extraction.sightings.length) &&
-      heur.isRelevant &&
-      heur.sightings.length
-    ) {
-      console.log(`  [heuristic] post ${post.postId} → ${heur.sightings.length} sighting(s)`);
-      extraction = heur;
-    }
-
-    if (!extraction || !extraction.isRelevant || !extraction.sightings.length) {
-      console.log(`  [irrelevant] post ${post.postId}`);
+    let posts;
+    try {
+      posts = await fetchChannelPosts({ channel });
+    } catch (err) {
+      // One channel failing (geo-block, rate limit) shouldn't kill the others.
+      console.error(`[update-map] @${channel} fetch failed: ${err.message}`);
       continue;
     }
 
-    backfillFromHeuristic(extraction.sightings, heur);
+    const newPosts = posts.filter((p) => p.postId > last && p.text).slice(-MAX_NEW_POSTS);
+    console.log(`[update-map] @${channel}: ${posts.length} posts, ${newPosts.length} new`);
+    if (newPosts.length === 0) continue;
+    anyNewPosts = true;
 
-    for (let sighting of extraction.sightings) {
-      // Fix headings that contain place names instead of compass directions.
-      sighting = normalizeSightingDirection(sighting);
-
-      const geo = await geocoder.resolve(sighting);
-      if (!geo) {
-        console.log(`  [no-geo] ${sighting.location} in post ${post.postId}`);
-        continue;
-      }
-
-      // Resolve where it's going: geocode the destination if the post named
-      // one, then derive a travel bearing (great-circle to the destination,
-      // falling back to the compass heading).
-      let destination = sighting.destination || null;
-      let destinationLat = null;
-      let destinationLon = null;
-      let bearing = null;
-
-      if (destination) {
-        const destGeo = await geocoder.resolve({
-          location: destination,
-          region: '', // don't bias by sighting region — destination may be a different region
-        });
-        // Only trust the geocoded destination if it lands in the expected region.
-        if (destGeo && isInRegion(destGeo.lat, destGeo.lon)) {
-          destinationLat = destGeo.lat;
-          destinationLon = destGeo.lon;
-          const b = bearingBetween(geo.lat, geo.lon, destGeo.lat, destGeo.lon);
-          bearing = ((b % 360) + 360) % 360;
-        } else if (destGeo) {
-          console.log(`  [bad-dest-geo] ${destination} resolved outside region (${destGeo.lat},${destGeo.lon})`);
-        }
-      }
-      if (bearing === null) bearing = headingToBearing(sighting.heading);
-
-      const id = `${post.id}:${sighting.location}`;
-      newSightingObjs.push({
-        id,
-        location: sighting.location,
-        locationRu: sighting.locationRu || '',
-        region: sighting.region || '',
-        lat: geo.lat,
-        lon: geo.lon,
-        geocodeSource: geo.source,
-        geocodePrecision: geo.precision || 'point',
-        matchedName: geo.matchedName,
-        threatType: sighting.threatType,
-        count: sighting.count,
-        heading: sighting.heading,
-        destination,
-        destinationLat,
-        destinationLon,
-        bearing,
-        status: sighting.status,
-        confidence: sighting.confidence,
-        postId: post.postId,
-        postLink: post.link,
-        postText: (post.text || '').slice(0, 400),
-        postDate: post.date,
-        summary: extraction.summary,
-        timestamp: post.date || new Date().toISOString(),
-        channel: CHANNEL,
-      });
-      const arrow = bearing !== null ? `→${Math.round(bearing)}°` : 'no-dir';
-      console.log(
-        `  📍 ${sighting.location} (${sighting.region}) [${sighting.threatType}] ${arrow}${destination ? ' → ' + destination : ''}`
-      );
+    let maxSeen = last;
+    for (const post of newPosts) {
+      maxSeen = Math.max(maxSeen, post.postId);
+      const objs = await processPost(post, channel, llm, geocoder);
+      newSightingObjs.push(...objs);
     }
+    lastPostId[channel] = maxSeen;
+  }
+
+  if (!anyNewPosts) {
+    console.log('[update-map] nothing new on any channel — exiting without writing');
+    return;
   }
 
   const merged = backfillBearings(dedup([...state.sightings, ...newSightingObjs]));
   const pruned = dropDestinationEchoes(pruneOld(merged));
 
-  const updatedLastPostId = { ...(state.lastPostId || {}), [CHANNEL]: maxSeenId };
   const output = {
     sightings: pruned,
-    lastPostId: updatedLastPostId,
+    lastPostId,
     updatedAt: new Date().toISOString(),
   };
 
   fs.mkdirSync(path.dirname(DOCS_DATA), { recursive: true });
   fs.writeFileSync(DOCS_DATA, JSON.stringify(output, null, 2));
   console.log(
-    `[update-map] done. +${newSightingObjs.length} new sightings, ${pruned.length} total. lastPostId=${maxSeenId}`
+    `[update-map] done. +${newSightingObjs.length} new sightings, ${pruned.length} total. lastPostId=${JSON.stringify(lastPostId)}`
   );
 }
 
@@ -362,7 +397,9 @@ if (require.main === module) {
 
 module.exports = {
   main,
+  processPost,
   backfillFromHeuristic,
+  stripSummaryCounts,
   extractWithRetry,
   dropDestinationEchoes,
   normalizeSightingDirection,

@@ -22,8 +22,9 @@
  * count/status on LLM results. Output matches normalizeExtraction's shape.
  */
 
-const DRONE_RE = /бпла|дрон|беспилотн|fpv/i;
-const MISSILE_RE = /ракет|крылат|баллист/i;
+// Russian (бпла/дрон) and Ukrainian (бпла/шахед/мопед) drone wording.
+const DRONE_RE = /бпла|дрон|беспилотн|безпілотн|шахед|шахід|мопед|fpv/i;
+const MISSILE_RE = /ракет|крылат|крилат|баллист|балістич/i;
 const REGION_RE = /(област|край|краю|республик|округ|\bА[РP]\b)/i;
 
 // Lines that are channel boilerplate / contact footer, not content.
@@ -31,17 +32,20 @@ const FOOTER_RE = /(радар по всей|обход белых|@\w|https?:|t
 
 // Phrases that describe the event rather than a place — never a location.
 const PHRASE_RE =
-  /(бпла|дрон|беспилотн|fpv|опасн|сбит|пво|отбой|мер[аы]\s+безопасн|фиксац|работа|повторно|ракет|угроз|внимание|тревог)/i;
+  /(бпла|дрон|беспилотн|безпілотн|шахед|fpv|опасн|сбит|збит|пво|ппо|отбой|відбій|мер[аы]\s+безопасн|фиксац|работа|повторно|ракет|угроз|загроз|внимание|увага|тревог|тривог)/i;
 
-/** Map the Russian status wording to our status enum. */
+/** Map Russian and Ukrainian status wording to our status enum. */
 function detectStatus(text) {
   const t = text.toLowerCase();
-  if (/отбой/.test(t)) return 'all_clear';
-  if (/(прил[её]т|взрыв|поврежд|попадан|удар)/.test(t)) return 'impact';
-  if (/(сбит|уничтож|пораж)/.test(t)) return 'shot_down';
-  if (/(работа\s+пво|пво\s+работа|работает\s+пво|отражени)/.test(t)) return 'overhead';
-  if (/(опасн|угроз|тревог)/.test(t)) return 'alert';
-  if (/(в сторону|в направлени|курс на|лет(ят|ит|еть|ел)\s+на|движ|приближ|фиксац|пересека)/.test(t)) {
+  if (/отбой|відбій/.test(t)) return 'all_clear';
+  // "удар" = a strike (impact), but NOT "ударний/ударних" = strike-type drone.
+  if (/(прил[её]т|приліт|взрыв|вибух|поврежд|попадан|влучан|удар(?!н))/.test(t)) return 'impact';
+  if (/(сбит|уничтож|пораж|збит|збил|знищ)/.test(t)) return 'shot_down';
+  if (/(работа\s+пво|пво\s+работа|работает\s+пво|отражени|робот[а-яёіїєґ]*\s+ппо|ппо\s+прац|відбива)/.test(t)) {
+    return 'overhead';
+  }
+  if (/(опасн|угроз|тревог|тривог|загроз)/.test(t)) return 'alert';
+  if (/(в сторону|в направлени|курс|лет(ят|ит|еть|ел)\s+на|движ|приближ|фиксац|пересека|руха|прямую|проліта|у напрямку)/.test(t)) {
     return 'approaching';
   }
   return 'unknown';
@@ -56,18 +60,20 @@ function detectCount(text) {
   return null;
 }
 
-/** Pull a destination place out of "в направлении Москвы" / "курс на Москву". */
+/** Pull a destination place out of "в направлении Москвы" / "курсом на Київ". */
 function detectDestination(text) {
   const m = text.match(
-    /(?:в\s+сторону|в\s+направлении|курс\s+на|лет(?:ят|ит|еть|ел)\s+на|направля\w*\s+на)\s+([А-ЯЁ][а-яё-]+)/
+    /(?:в\s+сторону|в\s+направлении|у\s+напрямку|курс[а-яёіїєґ]*\s+на|лет(?:ят|ит|еть|ел)\s+на|направля[а-яёіїєґ]*\s+на|прямую[а-яёіїєґ]*\s+на)\s+([А-ЯЁІЇЄҐ][а-яёіїєґ’ʼ'-]+)/
   );
   return m ? m[1] : null;
 }
 
 function detectThreatType(text) {
+  // A drone reference wins even if a missile word also appears (mixed posts).
+  if (DRONE_RE.test(text)) return 'drone';
   if (MISSILE_RE.test(text)) {
-    if (/крылат/i.test(text)) return 'cruise_missile';
-    if (/баллист/i.test(text)) return 'ballistic_missile';
+    if (/крылат|крилат/i.test(text)) return 'cruise_missile';
+    if (/баллист|балістич/i.test(text)) return 'ballistic_missile';
     return 'missile';
   }
   return 'drone';
@@ -84,7 +90,7 @@ function cleanLocation(s) {
 // A real place name is short and capitalised — this rejects free-form prose
 // (e.g. "Один за другим пересекают стык ... области") from becoming a location.
 function isPlaceLike(c) {
-  return /^[А-ЯЁA-Z]/.test(c) && c.length <= 40 && c.split(/\s+/).length <= 4;
+  return /^[А-ЯЁІЇЄҐA-Z]/.test(c) && c.length <= 40 && c.split(/\s+/).length <= 4;
 }
 
 function meaningfulLines(text) {
@@ -143,6 +149,9 @@ function analyzePost(text) {
   if (locations.length === 0 && region) locations = [cleanLocation(region)];
   if (locations.length === 0) return out; // threat post but no locatable place
 
+  // A count alongside several places is ambiguous (usually a total), so only
+  // attach it when the post names a single location.
+  const perLocationCount = locations.length === 1 ? count : null;
   for (const loc of locations) {
     out.sightings.push({
       location: loc,
@@ -151,7 +160,7 @@ function analyzePost(text) {
       lat: null,
       lon: null,
       threatType,
-      count,
+      count: perLocationCount,
       heading: null,
       destination: destination || null,
       status,
