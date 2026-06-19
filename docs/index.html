@@ -109,13 +109,72 @@
       }
       .dl-btn:hover { background: #1a2d42; }
       .dl-btn:disabled { opacity: 0.6; cursor: default; }
-      .export-stamp {
-        position: absolute; left: 12px; bottom: 24px; z-index: 1000; display: none;
-        background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 10px;
-        padding: 7px 11px; font-size: 11.5px; color: #cde0f5;
+
+      /* ---- area selection ---- */
+      #map.map-selecting { cursor: crosshair; }
+      .sel-rect {
+        position: absolute; z-index: 1500; pointer-events: none;
+        border: 2px dashed #ff5c5c; background: rgba(255,92,92,0.12);
+        box-shadow: 0 0 0 9999px rgba(8,15,24,0.45);
+      }
+      .sel-hint {
+        position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+        z-index: 1600; background: rgba(11,22,34,0.96); color: #fff;
+        padding: 9px 18px; border-radius: 22px; border: 1px solid #ff5c5c;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif; font-size: 13px;
+        box-shadow: 0 2px 14px rgba(0,0,0,0.5);
+      }
+      .sel-hint b { color: #ff8a8a; }
+
+      /* ---- clean "report" chrome, shown only while exporting an area ---- */
+      .exp-header, .exp-footer, .exp-warns { display: none; }
+      body.export-skin .bar,
+      body.export-skin .warn-panel,
+      body.export-skin .legend,
+      body.export-skin .dl-btn,
+      body.export-skin .leaflet-control-zoom,
+      body.export-skin .leaflet-control-attribution { display: none !important; }
+      body.export-skin .exp-header { display: flex; }
+      body.export-skin .exp-footer { display: flex; }
+      body.export-skin .exp-warns { display: flex; }
+
+      .exp-header {
+        position: absolute; top: 0; left: 0; right: 0; height: 58px; z-index: 1200;
+        background: #0b1622; border-bottom: 3px solid #ff3b3b;
+        align-items: center; justify-content: space-between; padding: 0 22px;
         font-family: -apple-system,"Segoe UI",Arial,sans-serif;
       }
-      body.exporting .export-stamp { display: block; }
+      .exp-title { font-size: 19px; font-weight: 800; color: #fff; letter-spacing: 0.3px; }
+      .exp-title .mk { color: #ff3b3b; }
+      .exp-sub { font-size: 12.5px; color: #9fc0e0; text-align: right; line-height: 1.45; }
+      .exp-sub b { color: #fff; font-weight: 700; }
+
+      .exp-footer {
+        position: absolute; left: 0; right: 0; bottom: 0; height: 42px; z-index: 1200;
+        background: #0b1622; border-top: 1px solid #22405f;
+        align-items: center; justify-content: space-between; padding: 0 22px;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif; color: #cde0f5; font-size: 12px;
+      }
+      .exp-legend { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; }
+      .exp-legend span { display: inline-flex; gap: 6px; align-items: center; }
+      .exp-legend i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+      .exp-src { color: #8ab0d0; white-space: nowrap; }
+
+      .exp-warns {
+        position: absolute; top: 74px; right: 18px; z-index: 1200; width: 236px;
+        flex-direction: column; background: rgba(11,22,34,0.94);
+        border: 1px solid #2d4a6a; border-radius: 12px; overflow: hidden;
+        box-shadow: 0 6px 22px rgba(0,0,0,0.5);
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif;
+      }
+      .exp-warns .eh { background: #ff3b3b; color: #fff; font-weight: 700; font-size: 12.5px; padding: 8px 12px; }
+      .exp-warns .er {
+        padding: 7px 12px; border-top: 1px solid rgba(45,74,106,0.45);
+        color: #cde0f5; font-size: 11.5px; display: flex; gap: 8px; align-items: center;
+      }
+      .exp-warns .er i { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
+      .exp-warns .er b { color: #fff; }
+      .exp-warns .eq { padding: 8px 12px; color: #8ab0d0; font-size: 11.5px; }
     </style>
   </head>
   <body>
@@ -134,7 +193,25 @@
       <div class="warn-list" id="warnList"></div>
     </div>
 
-    <button class="dl-btn no-export" id="dlBtn" title="Download a PNG of the current map">⬇ Download image</button>
+    <button class="dl-btn no-export" id="dlBtn" title="Pick an area, then download it as a PNG">⬇ Download area</button>
+
+    <!-- clean "report" chrome, only visible while exporting an area -->
+    <div class="exp-header">
+      <span class="exp-title"><span class="mk">◎</span> The Big Drone Detector</span>
+      <span class="exp-sub" id="expSub"></span>
+    </div>
+    <div class="exp-warns" id="expWarns"></div>
+    <div class="exp-footer">
+      <span class="exp-legend">
+        <span><i style="background:#ff3b3b"></i>Danger</span>
+        <span><i style="background:#ff7a3d"></i>Inbound</span>
+        <span><i style="background:#ffb03d"></i>Overhead</span>
+        <span><i style="background:#4fb6ff"></i>Intercepted</span>
+        <span><i style="background:#3fd87f"></i>All clear</span>
+        <span>→ heading · shaded = danger area</span>
+      </span>
+      <span class="exp-src" id="expSrc"></span>
+    </div>
 
     <div class="legend" id="legend">
       <h4>Legend — threat status</h4>
@@ -146,14 +223,13 @@
       <div class="lsub">✈ drones &nbsp;·&nbsp; ×N = count &nbsp;·&nbsp; → heading<br>shaded circle = area under danger</div>
     </div>
 
-    <div class="export-stamp" id="exportStamp"></div>
-
     <script src="vendor/leaflet/leaflet.js"></script>
     <script src="vendor/html2canvas.min.js"></script>
     <script>
       'use strict';
 
       const ONE_HOUR_MS = 60 * 60 * 1000;
+      let currentSightings = []; // latest consolidated sightings, for the exporter
 
       const THREAT = {
         drone:             { label: 'Drone / UAV',      color: '#ff5c5c', sym: '✈' },
@@ -417,6 +493,16 @@
         );
       }
 
+      // "All clear" — a calm green tick, so a resolved area reads as safe and
+      // is not confused with an active drone.
+      function clearGlyph(cx, cy, color, s) {
+        const r = 7.5 * s;
+        return (
+          `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2 * s}"/>` +
+          `<path d="M${cx - 3.6 * s},${cy + 0.3 * s} L${cx - 1 * s},${cy + 3 * s} L${cx + 3.8 * s},${cy - 3 * s}" fill="none" stroke="${color}" stroke-width="${2 * s}" stroke-linecap="round" stroke-linejoin="round"/>`
+        );
+      }
+
       function threatGlyph(type, cx, cy, color, s) {
         if (type === 'drone') return droneGlyph(cx, cy, color, s);
         if (type === 'missile' || type === 'cruise_missile' || type === 'ballistic_missile') {
@@ -458,7 +544,9 @@
         const W = Math.ceil(leftPad + rightPad + 2 * m);
         const H = Math.ceil(topPad + botPad + 2 * m);
 
-        const glyph = threatGlyph(s.threatType, Gx, Gy, color, scale);
+        const glyph = s.status === 'all_clear'
+          ? clearGlyph(Gx, Gy, color, scale)
+          : threatGlyph(s.threatType, Gx, Gy, color, scale);
 
         let arrow = '';
         if (bearing !== null) {
@@ -543,7 +631,8 @@
         if (s.reports > 1) accBits.push(`${s.reports} reports`);
         accBits.push(s.geocodePrecision === 'region' ? 'region-level (approx.)' : 'pinpoint');
         if (typeof s.confidence === 'number') accBits.push(`${Math.round(s.confidence * 100)}% conf.`);
-        if (s.channel) accBits.push('via @' + s.channel);
+        if (s.sources && s.sources.length) accBits.push('via ' + s.sources.map((c) => '@' + c).join(', '));
+        else if (s.channel) accBits.push('via @' + s.channel);
         const accLine = `<div class="popup-acc">${esc(accBits.join(' · '))}</div>`;
 
         return `
@@ -581,56 +670,168 @@
 
       // Render the whole view (map tiles, markers, warning areas, legend,
       // warnings panel) to a PNG and download it.
-      async function downloadImage() {
-        const btn = document.getElementById('dlBtn');
-        if (typeof html2canvas !== 'function') {
-          alert('Image renderer failed to load.');
-          return;
+      // ---- Export: pick an area → clean report-style PNG ----
+
+      function regionOf(s) { return s.region || s.location || '—'; }
+
+      // Fill the clean "report" chrome for the area currently in view.
+      function populateExportChrome(bounds) {
+        const inArea = currentSightings.filter(
+          (s) => typeof s.lat === 'number' && bounds.contains([s.lat, s.lon])
+        );
+
+        // Headline = the most-reported region in view + a timestamp.
+        const regionCounts = {};
+        inArea.forEach((s) => { const r = regionOf(s); regionCounts[r] = (regionCounts[r] || 0) + 1; });
+        const top = Object.entries(regionCounts).sort((a, b) => b[1] - a[1])[0];
+        document.getElementById('expSub').innerHTML =
+          `<b>${esc(top ? top[0] : 'Selected area')}</b><br>${esc(new Date().toLocaleString())}`;
+
+        const warns = inArea.filter((s) => statusInfo(s).warn);
+        document.getElementById('expSrc').textContent =
+          `${inArea.length} active · ${warns.length} warnings · @radarrussiia · @kpszsu · © OSM/CARTO`;
+
+        // Warnings list, grouped by region, most severe first.
+        const groups = new Map();
+        for (const s of warns) {
+          const key = regionOf(s); const info = statusInfo(s);
+          let g = groups.get(key);
+          if (!g) { g = { key, level: 0, spots: 0, color: info.color, label: info.label }; groups.set(key, g); }
+          g.spots++;
+          if (info.level > g.level) { g.level = info.level; g.color = info.color; g.label = info.label; }
         }
+        const arr = [...groups.values()].sort((a, b) => b.level - a.level).slice(0, 8);
+        const el = document.getElementById('expWarns');
+        if (!arr.length) {
+          el.innerHTML = '<div class="eh">Warnings in view</div><div class="eq">No active warnings in this area.</div>';
+        } else {
+          el.innerHTML = `<div class="eh">Warnings in view (${groups.size})</div>` +
+            arr.map((g) =>
+              `<div class="er"><i style="background:${g.color}"></i><span><b>${esc(g.key)}</b> — ${esc(g.label)}${g.spots > 1 ? ' · ' + g.spots + ' spots' : ''}</span></div>`
+            ).join('');
+        }
+      }
+
+      async function captureToPng(filename) {
+        const canvas = await html2canvas(document.body, {
+          useCORS: true,
+          backgroundColor: '#0b1622',
+          scale: 2,
+          logging: false,
+          imageTimeout: 15000,
+          ignoreElements: (el) => el.classList && (
+            el.classList.contains('no-export') ||
+            el.classList.contains('leaflet-control-zoom') ||
+            el.classList.contains('sel-rect') ||
+            el.classList.contains('sel-hint')
+          ),
+          // Freeze marker animations so pulses don't smear into blobs.
+          onclone: (doc) => {
+            const st = doc.createElement('style');
+            st.textContent = '.pulse,.pulse-alert{display:none !important}.threat-icon .rotor{animation:none !important}';
+            doc.head.appendChild(st);
+          },
+        });
+        const link = document.createElement('a');
+        link.download = filename;
+        link.href = canvas.toDataURL('image/png');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+      }
+
+      async function exportArea(bounds) {
+        const btn = document.getElementById('dlBtn');
+        if (typeof html2canvas !== 'function') { alert('Image renderer failed to load.'); return; }
         const original = btn.textContent;
         btn.disabled = true;
         btn.textContent = 'Rendering…';
-        document.body.classList.add('exporting');
-        document.getElementById('exportStamp').textContent =
-          'The Big Drone Detector · ' + new Date().toLocaleString() + ' · t.me/radarrussiia';
-        // Let any in-flight tiles settle before snapshotting.
-        await new Promise((r) => setTimeout(r, 350));
+        // Frame the area, leaving room for the header/footer bars.
+        map.fitBounds(bounds, { animate: false, paddingTopLeft: [12, 66], paddingBottomRight: [12, 52] });
+        populateExportChrome(map.getBounds());
+        document.body.classList.add('export-skin');
         try {
-          const canvas = await html2canvas(document.body, {
-            useCORS: true,
-            backgroundColor: '#0d1b2a',
-            scale: 2, // sharper, higher-resolution export
-            logging: false,
-            imageTimeout: 15000,
-            // Don't bake the download button or zoom controls into the image.
-            ignoreElements: (el) =>
-              el.classList && (el.classList.contains('no-export') || el.classList.contains('leaflet-control-zoom')),
-            // Freeze the marker animations in the snapshot so pulses don't
-            // smear into faint blobs across the picture.
-            onclone: (doc) => {
-              const st = doc.createElement('style');
-              st.textContent =
-                '.pulse,.pulse-alert{display:none !important}' +
-                '.threat-icon .rotor{animation:none !important}';
-              doc.head.appendChild(st);
-            },
-          });
+          await new Promise((r) => setTimeout(r, 700)); // let tiles load
           const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
-          const link = document.createElement('a');
-          link.download = `drone-map-${stamp}.png`;
-          link.href = canvas.toDataURL('image/png');
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
+          await captureToPng(`drone-map-${stamp}.png`);
         } catch (err) {
-          alert('Could not render the map image: ' + err.message);
+          alert('Could not render the area image: ' + err.message);
         } finally {
-          document.body.classList.remove('exporting');
+          document.body.classList.remove('export-skin');
           btn.disabled = false;
           btn.textContent = original;
         }
       }
-      document.getElementById('dlBtn').addEventListener('click', downloadImage);
+
+      // ---- drag-to-select an area ----
+      let selecting = false, selStart = null, selDiv = null, selHint = null;
+
+      function selPoint(e) {
+        const r = map.getContainer().getBoundingClientRect();
+        return { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY };
+      }
+      function startAreaSelect() {
+        if (selecting) return;
+        selecting = true;
+        map.getContainer().classList.add('map-selecting');
+        map.dragging.disable();
+        if (map.boxZoom) map.boxZoom.disable();
+        selHint = document.createElement('div');
+        selHint.className = 'sel-hint no-export';
+        selHint.innerHTML = 'Drag to select an area to export · <b>Esc</b> to cancel';
+        document.body.appendChild(selHint);
+        map.getContainer().addEventListener('pointerdown', selDown);
+        document.addEventListener('keydown', selKey);
+      }
+      function selDown(e) {
+        if (!selecting || e.button !== 0) return;
+        e.preventDefault();
+        selStart = selPoint(e);
+        selDiv = document.createElement('div');
+        selDiv.className = 'sel-rect';
+        Object.assign(selDiv.style, { left: selStart.cx + 'px', top: selStart.cy + 'px', width: '0px', height: '0px' });
+        document.body.appendChild(selDiv);
+        window.addEventListener('pointermove', selMove);
+        window.addEventListener('pointerup', selUp);
+      }
+      function selMove(e) {
+        if (!selStart) return;
+        const p = selPoint(e);
+        Object.assign(selDiv.style, {
+          left: Math.min(p.cx, selStart.cx) + 'px',
+          top: Math.min(p.cy, selStart.cy) + 'px',
+          width: Math.abs(p.cx - selStart.cx) + 'px',
+          height: Math.abs(p.cy - selStart.cy) + 'px',
+        });
+      }
+      function selUp(e) {
+        window.removeEventListener('pointermove', selMove);
+        window.removeEventListener('pointerup', selUp);
+        const p = selPoint(e);
+        const start = selStart;
+        cancelAreaSelect();
+        if (!start) return;
+        if (Math.abs(p.x - start.x) < 20 || Math.abs(p.y - start.y) < 20) return; // too small → cancel
+        const a = map.containerPointToLatLng([Math.min(p.x, start.x), Math.min(p.y, start.y)]);
+        const b = map.containerPointToLatLng([Math.max(p.x, start.x), Math.max(p.y, start.y)]);
+        exportArea(L.latLngBounds(a, b));
+      }
+      function selKey(e) { if (e.key === 'Escape') cancelAreaSelect(); }
+      function cancelAreaSelect() {
+        selecting = false;
+        selStart = null;
+        if (selDiv) { selDiv.remove(); selDiv = null; }
+        if (selHint) { selHint.remove(); selHint = null; }
+        map.getContainer().classList.remove('map-selecting');
+        map.dragging.enable();
+        if (map.boxZoom) map.boxZoom.enable();
+        map.getContainer().removeEventListener('pointerdown', selDown);
+        document.removeEventListener('keydown', selKey);
+        window.removeEventListener('pointermove', selMove);
+        window.removeEventListener('pointerup', selUp);
+      }
+
+      document.getElementById('dlBtn').addEventListener('click', startAreaSelect);
 
       // Build the live warnings list: active threats grouped by region, most
       // severe and most recent first. Clicking an entry flies there.
@@ -709,6 +910,31 @@
         return list.map((s) => (nulled.has(s) ? Object.assign({}, s, { count: null }) : s));
       }
 
+      // When a whole oblast sounds the "all clear" (отбой), drop the warnings
+      // in that region that came BEFORE it — the threat has passed. Newer
+      // reports survive, so a fresh alert after an all-clear still shows.
+      function isRegionLevelClear(s) {
+        if (s.status !== 'all_clear') return false;
+        const loc = normPlace(s.location), reg = normPlace(s.region);
+        return (reg && loc === reg) || /област|oblast|region|край|республик/.test(loc);
+      }
+      function supersedeWithAllClears(list) {
+        const clearedAt = new Map(); // region key -> latest all-clear time
+        for (const s of list) {
+          if (!isRegionLevelClear(s)) continue;
+          const rk = normPlace(s.region || s.location);
+          const t = Date.parse(s.timestamp || '') || 0;
+          if (!clearedAt.has(rk) || t > clearedAt.get(rk)) clearedAt.set(rk, t);
+        }
+        if (!clearedAt.size) return list;
+        return list.filter((s) => {
+          if (!statusInfo(s).warn) return true; // keep all-clears, intercepts, etc.
+          const ct = clearedAt.get(normPlace(s.region || ''));
+          const st = Date.parse(s.timestamp || '') || 0;
+          return !(ct && st <= ct); // drop warnings older than their region's all-clear
+        });
+      }
+
       // Merge repeat reports of the same place (many posts about one town)
       // into a single marker showing the current state, so the map reflects
       // distinct locations rather than stacks of overlapping pins.
@@ -724,6 +950,9 @@
           arr.sort((a, b) => (Date.parse(b.timestamp || '') || 0) - (Date.parse(a.timestamp || '') || 0));
           const rep = Object.assign({}, arr[0]); // newest report = current state
           rep.reports = arr.length;
+          // Collect the distinct source channels so overlapping sources merge
+          // into one marker that credits all of them.
+          rep.sources = [...new Set(arr.map((s) => s.channel).filter(Boolean))];
           const times = arr.map((s) => Date.parse(s.timestamp || '') || 0).filter(Boolean);
           rep.lastSeen = times.length ? Math.max.apply(null, times) : 0;
           if (rep.count == null) {
@@ -746,12 +975,13 @@
             const t = Date.parse(s.timestamp || '');
             return t && t >= cutoff;
           });
-          // Drop destination echoes, strip summary totals stamped across many
-          // areas, filter low-confidence noise, then merge repeat reports.
-          const cleaned = stripSummaryCounts(
-            dropDestinationEchoes(inWindow)
+          // Drop destination echoes, strip summary totals, clear regions that
+          // sounded the all-clear, filter low-confidence noise, then merge.
+          const cleaned = supersedeWithAllClears(
+            stripSummaryCounts(dropDestinationEchoes(inWindow))
           ).filter((s) => typeof s.confidence !== 'number' || s.confidence >= 0.3);
           const sightings = consolidateByLocation(cleaned);
+          currentSightings = sightings;
 
           layer.clearLayers();
           const pts = [];
@@ -816,13 +1046,17 @@
           if (!sightings.length) {
             statusText = `no sightings in last hour · updated ${when}`;
           } else {
-            const danger = sightings.filter((s) => statusInfo(s).level >= 3).length;
-            const inbound = sightings.filter((s) => statusInfo(s).level === 2).length;
-            const intercepted = sightings.filter((s) => s.status === 'shot_down').length;
-            const parts = [`${sightings.length} active`];
+            // All-clears are resolved, not active — count them separately.
+            const active = sightings.filter((s) => s.status !== 'all_clear');
+            const danger = active.filter((s) => statusInfo(s).level >= 3).length;
+            const inbound = active.filter((s) => statusInfo(s).level === 2).length;
+            const intercepted = active.filter((s) => s.status === 'shot_down').length;
+            const cleared = sightings.length - active.length;
+            const parts = [`${active.length} active`];
             if (danger) parts.push(`${danger} danger`);
             if (inbound) parts.push(`${inbound} inbound`);
             if (intercepted) parts.push(`${intercepted} intercepted`);
+            if (cleared) parts.push(`${cleared} clear`);
             parts.push(when);
             statusText = parts.join(' · ');
           }
