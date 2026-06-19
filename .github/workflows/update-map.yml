@@ -36,7 +36,7 @@ jobs:
         run: node scripts/update-map.js
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          TELEGRAM_CHANNEL: radarrussiia
+          TELEGRAM_CHANNELS: radarrussiia,kpszsu
           DDX_RETENTION_HOURS: '48'
 
       - name: Commit and push if data changed

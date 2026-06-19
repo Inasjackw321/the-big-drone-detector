@@ -125,7 +125,8 @@
       <span class="dot"></span>
       <b>The Big Drone Detector</b> &nbsp;·&nbsp;
       <span id="count">loading…</span> &nbsp;·&nbsp;
-      <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a>
+      <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a> ·
+      <a href="https://t.me/kpszsu" target="_blank" rel="noopener">@kpszsu</a>
     </div>
 
     <div class="warn-panel" id="warnPanel">
@@ -212,7 +213,18 @@
       const DEST_RAW = [
         [55.7558, 37.6173, ['Moscow', 'Москва', 'Москву', 'Москвы', 'Moscow Oblast']],
         [59.9343, 30.3351, ['Saint Petersburg', 'St Petersburg', 'Петербург', 'Санкт-Петербург']],
-        [50.4501, 30.5234, ['Kyiv', 'Kiev', 'Киев']],
+        [50.4501, 30.5234, ['Kyiv', 'Kiev', 'Киев', 'Київ']],
+        [49.9935, 36.2304, ['Kharkiv', 'Kharkov', 'Харків', 'Харьков']],
+        [46.4825, 30.7233, ['Odesa', 'Odessa', 'Одеса', 'Одесса']],
+        [48.4647, 35.0462, ['Dnipro', 'Дніпро', 'Днепр']],
+        [49.8397, 24.0297, ['Lviv', 'Львів', 'Львов']],
+        [47.8388, 35.1396, ['Zaporizhzhia', 'Запоріжжя', 'Запорожье']],
+        [46.9750, 31.9946, ['Mykolaiv', 'Миколаїв', 'Николаев']],
+        [46.6354, 32.6169, ['Kherson', 'Херсон']],
+        [49.5883, 34.5514, ['Poltava', 'Полтава']],
+        [50.9077, 34.7981, ['Sumy', 'Суми', 'Сумы']],
+        [51.4982, 31.2893, ['Chernihiv', 'Чернігів', 'Чернигов']],
+        [47.9105, 33.3918, ['Kryvyi Rih', 'Кривий Ріг', 'Кривой Рог']],
         [50.5997, 36.5983, ['Belgorod', 'Белгород']],
         [51.7373, 36.1874, ['Kursk', 'Курск']],
         [51.6608, 39.2003, ['Voronezh', 'Воронеж']],
@@ -512,6 +524,7 @@
         if (s.reports > 1) accBits.push(`${s.reports} reports`);
         accBits.push(s.geocodePrecision === 'region' ? 'region-level (approx.)' : 'pinpoint');
         if (typeof s.confidence === 'number') accBits.push(`${Math.round(s.confidence * 100)}% conf.`);
+        if (s.channel) accBits.push('via @' + s.channel);
         const accLine = `<div class="popup-acc">${esc(accBits.join(' · '))}</div>`;
 
         return `
