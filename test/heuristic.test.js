@@ -9,6 +9,8 @@ const {
   detectCount,
   detectDestination,
   cleanLocation,
+  isInterceptionRecap,
+  isBlockedLocation,
 } = require('../src/services/heuristic');
 
 const FOOTER = '\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot';
@@ -96,6 +98,26 @@ test('detectCount handles "от N" and bare "N БПЛА"', () => {
 test('cleanLocation removes prefixes but keeps district names', () => {
   assert.equal(cleanLocation('МО Раменское'), 'Раменское');
   assert.equal(cleanLocation('Жуковский район'), 'Жуковский район');
+});
+
+test('flags interception-recap totals and drops them', () => {
+  const en = 'From 8:00 a.m. to 2:00 p.m., air defense forces destroyed 216 UAVs over the Belgorod, Bryansk, Kursk, Smolensk regions.';
+  const ru = 'За минувшую ночь средствами ПВО уничтожено 137 БПЛА над территориями Белгородской, Брянской и Курской областей.';
+  assert.equal(isInterceptionRecap(en), true);
+  assert.equal(isInterceptionRecap(ru), true);
+  assert.equal(analyzePost(en).isRelevant, false);
+  // a single real interception is NOT a recap
+  assert.equal(isInterceptionRecap('Сбитие 1 БПЛА в Белгороде'), false);
+  assert.equal(isInterceptionRecap('Фиксация от 5 БПЛА'), false);
+});
+
+test('blocks seas and whole-country "locations"', () => {
+  assert.equal(isBlockedLocation('Black Sea'), true);
+  assert.equal(isBlockedLocation('Чёрное море'), true);
+  assert.equal(isBlockedLocation('Russia'), true);
+  assert.equal(isBlockedLocation('Ukraine'), true);
+  assert.equal(isBlockedLocation('Belgorod'), false);
+  assert.equal(isBlockedLocation('Tula Oblast'), false);
 });
 
 // --- Ukrainian (kpszsu) support ---

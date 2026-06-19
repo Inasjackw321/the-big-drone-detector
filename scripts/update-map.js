@@ -23,7 +23,7 @@ const path = require('path');
 const { fetchChannelPosts } = require('../src/services/telegram');
 const { OpenRouterClient } = require('../src/services/openrouter');
 const { Geocoder, normalizeKey } = require('../src/services/geocode');
-const { analyzePost } = require('../src/services/heuristic');
+const { analyzePost, isInterceptionRecap, isBlockedLocation } = require('../src/services/heuristic');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -240,6 +240,11 @@ async function extractWithRetry(llm, post, attempts = 3) {
 // Turn one post into geocoded sighting objects (LLM with heuristic fallback).
 async function processPost(post, channel, llm, geocoder) {
   const out = [];
+  // Skip MoD-style "destroyed N UAVs over [oblasts]" recap totals entirely.
+  if (isInterceptionRecap(post.text)) {
+    console.log(`  [recap-skip] post ${post.postId}`);
+    return out;
+  }
   const heur = analyzePost(post.text);
   let extraction = await extractWithRetry(llm, post);
 
@@ -263,6 +268,11 @@ async function processPost(post, channel, llm, geocoder) {
   stripSummaryCounts(extraction.sightings);
 
   for (let sighting of extraction.sightings) {
+    // Skip junk "locations" (seas, whole countries, vague terms).
+    if (isBlockedLocation(sighting.location)) {
+      console.log(`  [blocked-loc] "${sighting.location}" in post ${post.postId}`);
+      continue;
+    }
     // Fix headings that contain place names instead of compass directions.
     sighting = normalizeSightingDirection(sighting);
 
