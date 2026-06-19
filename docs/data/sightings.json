@@ -5069,10 +5069,36 @@
       "summary": "Drone threat alert declared for the Republic of Adygea.",
       "timestamp": "2026-06-19T01:13:32+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76401:Adler",
+      "location": "Adler",
+      "locationRu": "Адлер",
+      "region": "Krasnodar Krai",
+      "lat": 43.4342,
+      "lon": 39.9225,
+      "geocodeSource": "llm",
+      "matchedName": "Adler",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "overhead",
+      "confidence": 0.85,
+      "postId": 76401,
+      "postLink": "https://t.me/radarrussiia/76401",
+      "postText": "Адлер\nКраснодарский край\nОпасность по БПЛА\nРабота ПВО по БПЛА\nМеры безопасности\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-19T01:17:54+00:00",
+      "summary": "Air defense engaging UAVs over Adler, Krasnodar Krai.",
+      "timestamp": "2026-06-19T01:17:54+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76400
+    "radarrussiia": 76401
   },
-  "updatedAt": "2026-06-19T01:16:04.106Z"
+  "updatedAt": "2026-06-19T01:27:23.560Z"
 }
