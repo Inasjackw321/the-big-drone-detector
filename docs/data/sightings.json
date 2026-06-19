@@ -10522,11 +10522,38 @@
       "summary": "UAVs shot down over Sergiyev Posad urban district, Moscow Oblast; 6 more drones heading in that direction.",
       "timestamp": "2026-06-19T10:34:59+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76589:Khimki",
+      "location": "Khimki",
+      "locationRu": "Химки",
+      "region": "Moscow Oblast",
+      "lat": 55.8917293,
+      "lon": 37.4396994,
+      "geocodeSource": "nominatim",
+      "geocodePrecision": "point",
+      "matchedName": "Khimki",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "approaching",
+      "confidence": 0.85,
+      "postId": 76589,
+      "postLink": "https://t.me/radarrussiia/76589",
+      "postText": "ГО Химки\nМосковская область\nФиксация БПЛА\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-19T10:48:28+00:00",
+      "summary": "Drone detected over Khimki, Moscow Oblast.",
+      "timestamp": "2026-06-19T10:48:28+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76588,
+    "radarrussiia": 76589,
     "kpszsu": 65585
   },
-  "updatedAt": "2026-06-19T10:41:22.778Z"
+  "updatedAt": "2026-06-19T10:55:04.464Z"
 }
