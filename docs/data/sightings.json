@@ -8983,11 +8983,38 @@
       "summary": "Drones detected and shot down over Moscow Oblast (Подмосковье).",
       "timestamp": "2026-06-19T09:04:59+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "radarrussiia/76535:Sochi",
+      "location": "Sochi",
+      "locationRu": "Сочи",
+      "region": "Krasnodar Krai",
+      "lat": 43.5855,
+      "lon": 39.7231,
+      "geocodeSource": "gazetteer",
+      "geocodePrecision": "point",
+      "matchedName": "Sochi",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "all_clear",
+      "confidence": 0.9,
+      "postId": 76535,
+      "postLink": "https://t.me/radarrussiia/76535",
+      "postText": "Сочи и близлежащие\nКраснодарский край\nОтбой опасности по БПЛА\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-19T09:06:00+00:00",
+      "summary": "All-clear declared for Sochi and surrounding areas in Krasnodar Krai after a UAV threat.",
+      "timestamp": "2026-06-19T09:06:00+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76534,
+    "radarrussiia": 76535,
     "kpszsu": 65581
   },
-  "updatedAt": "2026-06-19T09:06:35.174Z"
+  "updatedAt": "2026-06-19T09:07:58.034Z"
 }
