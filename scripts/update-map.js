@@ -168,15 +168,19 @@ function dropDestinationEchoes(sightings) {
     if (!byPost.has(key)) byPost.set(key, []);
     byPost.get(key).push(s);
   }
+  const stripRegionWord = (k) =>
+    k.replace(/\s+(oblast|region|raion|district|krai|republic|область|области|округ|край)$/, '').trim();
   const drop = new Set();
   for (const group of byPost.values()) {
     if (group.length < 2) continue;
     for (const a of group) {
       const aLoc = normalizeKey(a.location);
       if (!aLoc) continue;
+      const aLocBare = stripRegionWord(aLoc);
       for (const b of group) {
         if (a === b) continue;
-        if (normalizeKey(sightingDestination(b)) === aLoc) {
+        const bDest = normalizeKey(sightingDestination(b));
+        if (bDest && (bDest === aLoc || bDest === aLocBare)) {
           drop.add(a.id);
           break;
         }

@@ -95,6 +95,15 @@ test('dropDestinationEchoes removes a sighting sitting at another’s destinatio
   assert.deepEqual(kept, ['p/1:Tula', 'p/2:Kursk']);
 });
 
+test('dropDestinationEchoes matches "X" destination against "X Oblast" location', () => {
+  const sightings = [
+    { id: 'r/9:Ogorodnikovo', channel: 'radarrussiia', postId: 9, location: 'Ogorodnikovo', destination: 'Nizhny Novgorod' },
+    { id: 'r/9:NN Oblast', channel: 'radarrussiia', postId: 9, location: 'Nizhny Novgorod Oblast', destination: null },
+  ];
+  const kept = dropDestinationEchoes(sightings).map((s) => s.id);
+  assert.deepEqual(kept, ['r/9:Ogorodnikovo']); // the destination-oblast echo is dropped
+});
+
 test('dropDestinationEchoes does not merge same post number across channels', () => {
   // Two different channels happen to share post number 5 — they must not be
   // grouped together (Kyiv on kpszsu is a real sighting, not a Moscow echo).
