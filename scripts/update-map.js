@@ -192,12 +192,29 @@ function backfillFromHeuristic(sightings, heur) {
   if (!heur || !heur.isRelevant || !heur.sightings.length) return;
   const heurCount = heur.sightings[0].count;
   const heurStatus = heur.sightings[0].status;
+  // Only attribute a count to a LONE sighting — a number alongside several
+  // places is ambiguous (often a total), so don't stamp it on each.
+  const single = sightings.length === 1;
   for (const s of sightings) {
-    if ((s.count === null || s.count === undefined) && heurCount != null) s.count = heurCount;
+    if (single && (s.count === null || s.count === undefined) && heurCount != null) {
+      s.count = heurCount;
+    }
     if ((!s.status || s.status === 'unknown') && heurStatus && heurStatus !== 'unknown') {
       s.status = heurStatus;
     }
   }
+}
+
+// A single post that lists one big number across MANY areas is a TOTAL, not a
+// per-location count (e.g. "133 UAVs over Belgorod, Bryansk, Kaluga … oblasts").
+// Don't stamp that number on every marker.
+function stripSummaryCounts(sightings) {
+  if (sightings.length < 3) return sightings;
+  const counts = sightings.map((s) => s.count).filter((c) => typeof c === 'number');
+  if (counts.length >= 3 && new Set(counts).size === 1 && counts[0] >= 10) {
+    for (const s of sightings) s.count = null;
+  }
+  return sightings;
 }
 
 // Ask the model, retrying transient failures so a flaky call doesn't drop a
@@ -237,6 +254,7 @@ async function processPost(post, channel, llm, geocoder) {
   }
 
   backfillFromHeuristic(extraction.sightings, heur);
+  stripSummaryCounts(extraction.sightings);
 
   for (let sighting of extraction.sightings) {
     // Fix headings that contain place names instead of compass directions.
@@ -381,6 +399,7 @@ module.exports = {
   main,
   processPost,
   backfillFromHeuristic,
+  stripSummaryCounts,
   extractWithRetry,
   dropDestinationEchoes,
   normalizeSightingDirection,

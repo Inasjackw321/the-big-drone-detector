@@ -149,6 +149,9 @@ function analyzePost(text) {
   if (locations.length === 0 && region) locations = [cleanLocation(region)];
   if (locations.length === 0) return out; // threat post but no locatable place
 
+  // A count alongside several places is ambiguous (usually a total), so only
+  // attach it when the post names a single location.
+  const perLocationCount = locations.length === 1 ? count : null;
   for (const loc of locations) {
     out.sightings.push({
       location: loc,
@@ -157,7 +160,7 @@ function analyzePost(text) {
       lat: null,
       lon: null,
       threatType,
-      count,
+      count: perLocationCount,
       heading: null,
       destination: destination || null,
       status,

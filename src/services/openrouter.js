@@ -41,7 +41,8 @@ Rules:
   * "heading" = the compass direction ONLY. Must be EXACTLY one of: "north","north-east","east","south-east","south","south-west","west","north-west". Derive it from explicit direction words ("north", "север", "восток", etc.) or from knowing which direction the destination city is from the sighting. NEVER put place names in heading. If you cannot determine a compass direction with confidence, set heading to null.
   * Examples: "в направлении Москвы" from Тула → destination="Moscow", heading="north". "курс на восток" → heading="east". "в сторону Курска" from Белгород → destination="Kursk", heading="north".
 - Do NOT create a separate sighting object for the destination (the place a threat is heading TOWARD). The destination belongs only in the "destination" field of the moving sighting. Only output a sighting for a place where the threat currently is, was seen, or is passing through. (e.g. "20 drones through Tula toward Moscow" → ONE sighting: location "Tula", destination "Moscow"; do NOT add a Moscow sighting.)
-- COUNT: if the post states a number of objects ("Фиксация от N БПЛА", "N БПЛА", "N дронов", "N drones"), set count = N. Otherwise null.
+- COUNT: if the post states a number of objects for a SINGLE place ("Фиксация от N БПЛА", "N БПЛА", "N дронов", "N drones"), set count = N for that sighting. Otherwise null.
+- SUMMARY TOTALS: if a post gives ONE total over MANY regions (a daily/nightly recap, e.g. "за ночь сбито 133 БПЛА над Белгородской, Брянской, Калужской … областями"), that number is a TOTAL — set count=null on every sighting; do NOT put the total on each region.
 - STATUS — map the Russian/Ukrainian wording to EXACTLY one status, consistently:
   * "отбой" / "відбій" (all clear / stand down) → "all_clear"
   * "опасность" / "угроза" / "тревога" / "тривога" / "загроза" (danger declared) → "alert"

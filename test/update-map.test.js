@@ -6,28 +6,57 @@ const assert = require('node:assert');
 // Importing must NOT kick off the update run (guarded by require.main).
 const {
   backfillFromHeuristic,
+  stripSummaryCounts,
   extractWithRetry,
   dropDestinationEchoes,
   processPost,
 } = require('../scripts/update-map');
 
-test('backfillFromHeuristic fills missing count and status only', () => {
+test('backfillFromHeuristic fills status for all but count only for a lone sighting', () => {
   const heur = { isRelevant: true, sightings: [{ count: 5, status: 'approaching' }] };
-  const sightings = [
-    { count: null, status: 'unknown' }, // both filled
-    { count: 12, status: 'shot_down' }, // model values kept
-    { count: null, status: 'overhead' }, // only count filled
+  const many = [
+    { count: null, status: 'unknown' },
+    { count: 12, status: 'shot_down' },
+    { count: null, status: 'overhead' },
   ];
-  backfillFromHeuristic(sightings, heur);
-  assert.deepEqual(sightings[0], { count: 5, status: 'approaching' });
-  assert.deepEqual(sightings[1], { count: 12, status: 'shot_down' });
-  assert.deepEqual(sightings[2], { count: 5, status: 'overhead' });
+  backfillFromHeuristic(many, heur);
+  // Count is ambiguous across several places, so only status is filled.
+  assert.deepEqual(many[0], { count: null, status: 'approaching' });
+  assert.deepEqual(many[1], { count: 12, status: 'shot_down' });
+  assert.deepEqual(many[2], { count: null, status: 'overhead' });
+
+  const one = [{ count: null, status: 'unknown' }];
+  backfillFromHeuristic(one, heur);
+  assert.deepEqual(one[0], { count: 5, status: 'approaching' }); // lone sighting gets the count
 });
 
 test('backfillFromHeuristic is a no-op when the heuristic found nothing', () => {
   const sightings = [{ count: null, status: 'unknown' }];
   backfillFromHeuristic(sightings, { isRelevant: false, sightings: [] });
   assert.deepEqual(sightings[0], { count: null, status: 'unknown' });
+});
+
+test('stripSummaryCounts nulls one number spread across many areas', () => {
+  const s = [
+    { location: 'A', count: 133 }, { location: 'B', count: 133 },
+    { location: 'C', count: 133 }, { location: 'D', count: 133 },
+  ];
+  stripSummaryCounts(s);
+  assert.ok(s.every((x) => x.count === null));
+});
+
+test('stripSummaryCounts keeps genuine per-location counts', () => {
+  const single = [{ count: 5 }];
+  stripSummaryCounts(single);
+  assert.equal(single[0].count, 5);
+
+  const small = [{ count: 2 }, { count: 2 }, { count: 2 }]; // small numbers stay
+  stripSummaryCounts(small);
+  assert.deepEqual(small.map((x) => x.count), [2, 2, 2]);
+
+  const varied = [{ count: 10 }, { count: 20 }, { count: 30 }]; // differing stays
+  stripSummaryCounts(varied);
+  assert.deepEqual(varied.map((x) => x.count), [10, 20, 30]);
 });
 
 test('extractWithRetry returns the first successful extraction', async () => {

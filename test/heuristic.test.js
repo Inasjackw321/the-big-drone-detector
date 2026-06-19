@@ -68,6 +68,12 @@ test('free-form prose is relevant but yields no fake location', () => {
   assert.equal(r.sightings.length, 0);
 });
 
+test('does not attach a count to multi-location posts (likely a total)', () => {
+  const r = analyzePost('Чехов, Серпухов, Коломна, Московская область - фіксація 6 БПЛА.' + FOOTER);
+  assert.ok(r.sightings.length >= 2);
+  assert.ok(r.sightings.every((s) => s.count === null));
+});
+
 test('region-only post maps to the region', () => {
   const r = analyzePost('Ростовская область\nОтбой опасности по БПЛА' + FOOTER);
   assert.equal(r.sightings.length, 1);

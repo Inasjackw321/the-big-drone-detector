@@ -303,17 +303,28 @@
         return headingToBearing(s.heading);
       }
 
-      // Compute destination lat/lon from start point + bearing + distance (km).
-      function destPoint(lat, lon, bearing, distKm) {
-        const R = 6371;
-        const d = distKm / R;
-        const φ1 = lat * Math.PI / 180;
-        const λ1 = lon * Math.PI / 180;
-        const θ = bearing * Math.PI / 180;
-        const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(θ));
-        const λ2 = λ1 + Math.atan2(Math.sin(θ) * Math.sin(d) * Math.cos(φ1),
-                                    Math.cos(d) - Math.sin(φ1) * Math.sin(φ2));
-        return [φ2 * 180 / Math.PI, λ2 * 180 / Math.PI];
+      // Haversine distance in km.
+      function haversineKm(lat1, lon1, lat2, lon2) {
+        const toRad = (d) => (d * Math.PI) / 180;
+        const dla = toRad(lat2 - lat1), dlo = toRad(lon2 - lon1);
+        const a = Math.sin(dla / 2) ** 2 +
+          Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dlo / 2) ** 2;
+        return 2 * 6371 * Math.asin(Math.sqrt(a));
+      }
+
+      // Only draw an arrow when we're confident WHERE it's going: a named
+      // destination we have coordinates for, within a sane range. A compass
+      // heading or projected guess is NOT enough — no destination, no arrow.
+      const MAX_ARROW_KM = 1500;
+      function confidentDest(s) {
+        const dest = resolveDestLatLon(s);
+        if (!destIsElsewhere(s, dest)) return null;
+        if (haversineKm(s.lat, s.lon, dest.lat, dest.lon) > MAX_ARROW_KM) return null;
+        return dest;
+      }
+      function confidentBearing(s) {
+        const dest = confidentDest(s);
+        return dest ? bearingTo(s.lat, s.lon, dest.lat, dest.lon) : null;
       }
 
       // Drop "destination echo" markers: if one sighting in a post heads toward
@@ -413,7 +424,8 @@
       function buildIcon(s) {
         const info = statusInfo(s);
         const color = info.color;
-        const bearing = resolveBearing(s);
+        // Arrow only when the destination is known — not from a bare heading.
+        const bearing = confidentBearing(s);
         const isWarn = info.warn;        // active threat → pulse
         const isDanger = info.level >= 3; // danger/impact → alert ring
         const count = Math.max(1, s.count || 1);
@@ -669,6 +681,27 @@
         }
       }
 
+      // A single post that lists one number across many areas is a TOTAL, not a
+      // per-location count — null those out so it isn't shown on every marker.
+      function stripSummaryCounts(list) {
+        const byPost = new Map();
+        for (const s of list) {
+          const k = (s.channel || '') + '/' + s.postId;
+          if (!byPost.has(k)) byPost.set(k, []);
+          byPost.get(k).push(s);
+        }
+        const nulled = new Set();
+        for (const arr of byPost.values()) {
+          if (arr.length < 3) continue;
+          const counts = arr.map((s) => s.count).filter((c) => typeof c === 'number');
+          if (counts.length >= 3 && new Set(counts).size === 1 && counts[0] >= 10) {
+            for (const s of arr) nulled.add(s);
+          }
+        }
+        if (!nulled.size) return list;
+        return list.map((s) => (nulled.has(s) ? Object.assign({}, s, { count: null }) : s));
+      }
+
       // Merge repeat reports of the same place (many posts about one town)
       // into a single marker showing the current state, so the map reflects
       // distinct locations rather than stacks of overlapping pins.
@@ -706,10 +739,11 @@
             const t = Date.parse(s.timestamp || '');
             return t && t >= cutoff;
           });
-          // Drop destination echoes, filter out low-confidence noise, then merge
-          // repeat reports of the same place into one accurate marker.
-          const cleaned = dropDestinationEchoes(inWindow)
-            .filter((s) => typeof s.confidence !== 'number' || s.confidence >= 0.3);
+          // Drop destination echoes, strip summary totals stamped across many
+          // areas, filter low-confidence noise, then merge repeat reports.
+          const cleaned = stripSummaryCounts(
+            dropDestinationEchoes(inWindow)
+          ).filter((s) => typeof s.confidence !== 'number' || s.confidence >= 0.3);
           const sightings = consolidateByLocation(cleaned);
 
           layer.clearLayers();
@@ -742,22 +776,13 @@
               }).addTo(layer);
             }
 
-            // Direction line + arrowhead. If we know the destination's actual
-            // coordinates, draw the arrow straight to it; otherwise project a
-            // 200 km stub along the bearing.
-            const dest = resolveDestLatLon(s);
-            let lineEnd = null, lineBearing = null;
-            if (destIsElsewhere(s, dest)) {
-              lineEnd = [dest.lat, dest.lon];
-              lineBearing = bearingTo(s.lat, s.lon, dest.lat, dest.lon);
-            } else {
-              const b = resolveBearing(s);
-              if (b !== null) {
-                lineEnd = destPoint(s.lat, s.lon, b, 200);
-                lineBearing = b;
-              }
-            }
-            if (lineEnd) {
+            // Direction arrow ONLY when we know the actual destination — draw a
+            // line straight to it. No destination → no arrow (a bare compass
+            // heading isn't certain enough to point anywhere).
+            const dest = confidentDest(s);
+            if (dest) {
+              const lineEnd = [dest.lat, dest.lon];
+              const lineBearing = bearingTo(s.lat, s.lon, dest.lat, dest.lon);
               L.polyline([[s.lat, s.lon], lineEnd], {
                 color, weight: 2.5, opacity: 0.55, dashArray: '7 6',
               }).addTo(layer);
