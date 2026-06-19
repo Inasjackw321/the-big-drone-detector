@@ -310,6 +310,7 @@ async function main() {
         lat: geo.lat,
         lon: geo.lon,
         geocodeSource: geo.source,
+        geocodePrecision: geo.precision || 'point',
         matchedName: geo.matchedName,
         threatType: sighting.threatType,
         count: sighting.count,

@@ -23,6 +23,15 @@ function normalizeKey(s) {
     .trim();
 }
 
+// Plausible bounding box for the Russian Federation + nearby occupied areas.
+// Used to reject obviously-wrong coordinates (e.g. a same-named city abroad).
+function inRegionBbox(lat, lon) {
+  return (
+    typeof lat === 'number' && typeof lon === 'number' &&
+    lat >= 41 && lat <= 78 && lon >= 19 && lon <= 180
+  );
+}
+
 class Geocoder {
   constructor({ gazetteerPath, fetchImpl, userAgent, enableNominatim = true } = {}) {
     this.fetchImpl = fetchImpl || globalThis.fetch;
@@ -93,7 +102,8 @@ class Geocoder {
     this._lastNominatimAt = Date.now();
 
     const url =
-      'https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=en&q=' +
+      'https://nominatim.openstreetmap.org/search?format=json&limit=1&accept-language=en' +
+      '&countrycodes=ru,ua&q=' +
       encodeURIComponent(query);
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -127,34 +137,37 @@ class Geocoder {
    * @returns {Promise<{lat:number, lon:number, source:string, matchedName:string, region:string}|null>}
    */
   async resolve(sighting, timeoutMs = 12000) {
-    // 1) Trust confident LLM coordinates.
-    if (
-      typeof sighting.lat === 'number' &&
-      typeof sighting.lon === 'number' &&
-      Math.abs(sighting.lat) <= 90 &&
-      Math.abs(sighting.lon) <= 180
-    ) {
-      return {
-        lat: sighting.lat,
-        lon: sighting.lon,
-        source: 'llm',
-        matchedName: sighting.location,
-        region: sighting.region || '',
-      };
-    }
-
     const cacheKey = normalizeKey(`${sighting.location}|${sighting.region || ''}`);
     if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
 
-    // 2) Offline gazetteer.
+    // 1) Curated offline gazetteer first — accurate and deterministic, so a
+    //    given place always lands on the same point (and the model can't
+    //    drift it around with guessed coordinates).
     let hit = this.lookupLocal(sighting.location, sighting.region);
 
-    // 3) Nominatim, biased to Russia.
+    // 2) Nominatim, constrained to RU/UA.
     if (!hit) {
       const q = sighting.region
         ? `${sighting.location}, ${sighting.region}, Russia`
         : `${sighting.location}, Russia`;
       hit = await this._nominatim(q, timeoutMs);
+    }
+
+    // 3) Fall back to the model's own coordinates only when nothing else
+    //    resolves, and only if they land in the plausible region.
+    if (
+      !hit &&
+      typeof sighting.lat === 'number' &&
+      typeof sighting.lon === 'number' &&
+      inRegionBbox(sighting.lat, sighting.lon)
+    ) {
+      hit = {
+        lat: sighting.lat,
+        lon: sighting.lon,
+        source: 'llm',
+        name: sighting.location,
+        region: sighting.region || '',
+      };
     }
 
     const result = hit
@@ -164,6 +177,8 @@ class Geocoder {
           source: hit.source,
           matchedName: hit.name || sighting.location,
           region: hit.region || sighting.region || '',
+          // Region-centroid fallbacks are approximate; everything else is a point.
+          precision: hit.source === 'gazetteer-region' ? 'region' : 'point',
         }
       : null;
     this.cache.set(cacheKey, result);
@@ -171,4 +186,4 @@ class Geocoder {
   }
 }
 
-module.exports = { Geocoder, normalizeKey };
+module.exports = { Geocoder, normalizeKey, inRegionBbox };

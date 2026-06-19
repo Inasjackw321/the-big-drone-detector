@@ -20,6 +20,7 @@
       .popup-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #fff; }
       .popup-meta  { color: #8ab0d0; font-size: 12px; margin-bottom: 3px; }
       .popup-status { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+      .popup-acc   { color: #6f93b4; font-size: 11px; margin-bottom: 3px; }
       .popup-dest  { color: #ffd27f; font-size: 12px; margin-bottom: 3px; }
       .popup-alert { color: #ff9f3d; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
       .popup-text  {
@@ -505,18 +506,28 @@
           `<div class="popup-status" style="color:${info.color}">● ${esc(info.label)}` +
           `${info.level >= 3 ? ' — warning' : ''}</div>`;
 
+        // Accuracy line: how many reports back this, how precise the location
+        // is, and the extraction confidence.
+        const accBits = [];
+        if (s.reports > 1) accBits.push(`${s.reports} reports`);
+        accBits.push(s.geocodePrecision === 'region' ? 'region-level (approx.)' : 'pinpoint');
+        if (typeof s.confidence === 'number') accBits.push(`${Math.round(s.confidence * 100)}% conf.`);
+        const accLine = `<div class="popup-acc">${esc(accBits.join(' · '))}</div>`;
+
         return `
           <div class="popup-title">${esc(s.location)}</div>
           ${statusLine}
           <div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>
           ${going}
+          ${accLine}
           ${s.postText ? `<div class="popup-text">${esc(s.postText)}</div>` : ''}
           ${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}
         `;
       }
 
-      // dark tiles
-      const map = L.map('map', { zoomControl: true }).setView([55.0, 40.0], 5);
+      // dark tiles. preferCanvas renders the circles/lines onto a canvas, which
+      // exports far more cleanly than Leaflet's default SVG overlay.
+      const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([55.0, 40.0], 5);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
         // CORS so the tiles can be drawn into a canvas for image export.
@@ -550,14 +561,27 @@
         document.body.classList.add('exporting');
         document.getElementById('exportStamp').textContent =
           'The Big Drone Detector · ' + new Date().toLocaleString() + ' · t.me/radarrussiia';
+        // Let any in-flight tiles settle before snapshotting.
+        await new Promise((r) => setTimeout(r, 350));
         try {
           const canvas = await html2canvas(document.body, {
             useCORS: true,
             backgroundColor: '#0d1b2a',
+            scale: 2, // sharper, higher-resolution export
             logging: false,
+            imageTimeout: 15000,
             // Don't bake the download button or zoom controls into the image.
             ignoreElements: (el) =>
               el.classList && (el.classList.contains('no-export') || el.classList.contains('leaflet-control-zoom')),
+            // Freeze the marker animations in the snapshot so pulses don't
+            // smear into faint blobs across the picture.
+            onclone: (doc) => {
+              const st = doc.createElement('style');
+              st.textContent =
+                '.pulse,.pulse-alert{display:none !important}' +
+                '.threat-icon .rotor{animation:none !important}';
+              doc.head.appendChild(st);
+            },
           });
           const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
           const link = document.createElement('a');
@@ -632,6 +656,32 @@
         }
       }
 
+      // Merge repeat reports of the same place (many posts about one town)
+      // into a single marker showing the current state, so the map reflects
+      // distinct locations rather than stacks of overlapping pins.
+      function consolidateByLocation(list) {
+        const groups = new Map();
+        for (const s of list) {
+          const key = normPlace(s.location) + '|' + normPlace(s.region);
+          if (!groups.has(key)) groups.set(key, []);
+          groups.get(key).push(s);
+        }
+        const out = [];
+        for (const arr of groups.values()) {
+          arr.sort((a, b) => (Date.parse(b.timestamp || '') || 0) - (Date.parse(a.timestamp || '') || 0));
+          const rep = Object.assign({}, arr[0]); // newest report = current state
+          rep.reports = arr.length;
+          const times = arr.map((s) => Date.parse(s.timestamp || '') || 0).filter(Boolean);
+          rep.lastSeen = times.length ? Math.max.apply(null, times) : 0;
+          if (rep.count == null) {
+            const counts = arr.map((s) => s.count).filter((n) => typeof n === 'number');
+            rep.count = counts.length ? Math.max.apply(null, counts) : null;
+          }
+          out.push(rep);
+        }
+        return out;
+      }
+
       async function load() {
         try {
           const res = await fetch('data/sightings.json?t=' + Date.now());
@@ -643,8 +693,11 @@
             const t = Date.parse(s.timestamp || '');
             return t && t >= cutoff;
           });
-          // Collapse destination-echo duplicates so one event is one group.
-          const sightings = dropDestinationEchoes(inWindow);
+          // Drop destination echoes, filter out low-confidence noise, then merge
+          // repeat reports of the same place into one accurate marker.
+          const cleaned = dropDestinationEchoes(inWindow)
+            .filter((s) => typeof s.confidence !== 'number' || s.confidence >= 0.3);
+          const sightings = consolidateByLocation(cleaned);
 
           layer.clearLayers();
           const pts = [];
@@ -663,6 +716,16 @@
                 weight: 1,
                 opacity: 0.35,
                 dashArray: '5 5',
+              }).addTo(layer);
+            } else if (s.geocodePrecision === 'region') {
+              // Approximate (region-centroid) placement → show an uncertainty ring.
+              L.circle([s.lat, s.lon], {
+                radius: 30000,
+                color: '#6f93b4',
+                weight: 1,
+                opacity: 0.25,
+                fill: false,
+                dashArray: '3 6',
               }).addTo(layer);
             }
 
