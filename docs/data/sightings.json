@@ -10630,11 +10630,65 @@
       "summary": "All-clear declared for UAV threat over Penza Oblast.",
       "timestamp": "2026-06-19T11:12:26+00:00",
       "channel": "radarrussiia"
+    },
+    {
+      "id": "kpszsu/65588:Kharkiv Oblast",
+      "location": "Kharkiv Oblast",
+      "locationRu": "Харківщини",
+      "region": "Kharkiv Oblast",
+      "lat": 49.9935,
+      "lon": 36.2304,
+      "geocodeSource": "gazetteer",
+      "geocodePrecision": "point",
+      "matchedName": "Kharkiv",
+      "threatType": "missile",
+      "count": null,
+      "heading": "north",
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": 0,
+      "status": "impact",
+      "confidence": 0.7,
+      "postId": 65588,
+      "postLink": "https://t.me/kpszsu/65588",
+      "postText": "🚀 Пуски КАБ на північ Харківщини.",
+      "postDate": "2026-06-19T11:37:00+00:00",
+      "summary": "Guided bombs (КАБ) launched toward northern Kharkiv Oblast.",
+      "timestamp": "2026-06-19T11:37:00+00:00",
+      "channel": "kpszsu"
+    },
+    {
+      "id": "radarrussiia/76594:Kolomna",
+      "location": "Kolomna",
+      "locationRu": "Коломна",
+      "region": "Moscow Oblast",
+      "lat": 55.0938743,
+      "lon": 38.7670121,
+      "geocodeSource": "nominatim",
+      "geocodePrecision": "point",
+      "matchedName": "Kolomna",
+      "threatType": "drone",
+      "count": null,
+      "heading": null,
+      "destination": null,
+      "destinationLat": null,
+      "destinationLon": null,
+      "bearing": null,
+      "status": "overhead",
+      "confidence": 0.9,
+      "postId": 76594,
+      "postLink": "https://t.me/radarrussiia/76594",
+      "postText": "ГО Коломна\nМосковская область\nРабота ПВО по БПЛА\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
+      "postDate": "2026-06-19T11:41:29+00:00",
+      "summary": "Air defense engaging drones over Kolomna, Moscow Oblast.",
+      "timestamp": "2026-06-19T11:41:29+00:00",
+      "channel": "radarrussiia"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 76593,
-    "kpszsu": 65586
+    "radarrussiia": 76594,
+    "kpszsu": 65588
   },
-  "updatedAt": "2026-06-19T11:23:12.213Z"
+  "updatedAt": "2026-06-19T11:42:53.903Z"
 }
