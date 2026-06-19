@@ -267,16 +267,16 @@
         return stripped && DEST_COORDS[stripped] ? DEST_COORDS[stripped] : null;
       }
 
-      // Where a sighting is heading, as coordinates: curated gazetteer first,
-      // then any coordinates the backend geocoded.
+      // Where a sighting is heading, as coordinates — ONLY from the curated
+      // list of well-known cities. We deliberately ignore the backend's
+      // free-geocoded destination: ambiguous names ("Troitsa", "Troitsk") often
+      // resolve to the wrong namesake and send the arrow the wrong way. No
+      // curated match → no arrow.
       function resolveDestLatLon(s) {
         const name = s.destination || extractDestFromHeading(s.heading);
         if (name) {
           const g = lookupDest(name);
           if (g) return { lat: g[0], lon: g[1], name };
-        }
-        if (typeof s.destinationLat === 'number' && typeof s.destinationLon === 'number') {
-          return { lat: s.destinationLat, lon: s.destinationLon, name: name || '' };
         }
         return null;
       }
@@ -333,10 +333,15 @@
       function sightingDest(s) {
         return s.destination || extractDestFromHeading(s.heading) || '';
       }
+      // Strip a trailing oblast/region word so "Nizhny Novgorod Oblast" (a
+      // destination echo) matches the "Nizhny Novgorod" it heads toward.
+      function stripRegionWord(k) {
+        return k.replace(/\s+(oblast|region|raion|district|krai|republic|область|области|округ|край)$/,'').trim();
+      }
       function dropDestinationEchoes(list) {
         const byPost = new Map();
         for (const s of list) {
-          const k = s.postId != null ? s.postId : s.id;
+          const k = (s.channel || '') + '/' + (s.postId != null ? s.postId : s.id);
           if (!byPost.has(k)) byPost.set(k, []);
           byPost.get(k).push(s);
         }
@@ -346,9 +351,11 @@
           for (const a of group) {
             const aLoc = normPlace(a.location);
             if (!aLoc) continue;
+            const aLocBare = stripRegionWord(aLoc);
             for (const b of group) {
               if (a === b) continue;
-              if (normPlace(sightingDest(b)) === aLoc) { drop.add(a.id); break; }
+              const bDest = normPlace(sightingDest(b));
+              if (bDest && (bDest === aLoc || bDest === aLocBare)) { drop.add(a.id); break; }
             }
           }
         }
