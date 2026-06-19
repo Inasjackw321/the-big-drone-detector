@@ -84,6 +84,37 @@
       .warn-body { flex: 1; min-width: 0; }
       .warn-region { font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
       .warn-meta { font-size: 11px; color: #8ab0d0; }
+
+      /* legend (bottom-right) */
+      .legend {
+        position: absolute; right: 12px; bottom: 24px; z-index: 1000; width: 212px;
+        background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 12px;
+        box-shadow: 0 4px 18px rgba(0,0,0,0.5); backdrop-filter: blur(6px);
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif; color: #cde0f5;
+        padding: 10px 12px; font-size: 11.5px;
+      }
+      .legend h4 { font-size: 12px; color: #fff; margin-bottom: 6px; }
+      .legend .lrow { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
+      .legend .ldot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+      .legend .lsub { color: #8ab0d0; margin-top: 7px; border-top: 1px solid #2d4a6a; padding-top: 6px; line-height: 1.5; }
+
+      /* download button (top-right) + export-only timestamp stamp */
+      .dl-btn {
+        position: absolute; top: 12px; right: 12px; z-index: 1001; cursor: pointer;
+        background: rgba(13,27,42,0.92); color: #cde0f5; border: 1px solid #2d4a6a;
+        border-radius: 20px; padding: 8px 14px; font-size: 13px; font-weight: 600;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif;
+        box-shadow: 0 2px 12px rgba(0,0,0,0.5); backdrop-filter: blur(6px);
+      }
+      .dl-btn:hover { background: #1a2d42; }
+      .dl-btn:disabled { opacity: 0.6; cursor: default; }
+      .export-stamp {
+        position: absolute; left: 12px; bottom: 24px; z-index: 1000; display: none;
+        background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 10px;
+        padding: 7px 11px; font-size: 11.5px; color: #cde0f5;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif;
+      }
+      body.exporting .export-stamp { display: block; }
     </style>
   </head>
   <body>
@@ -101,7 +132,22 @@
       <div class="warn-list" id="warnList"></div>
     </div>
 
+    <button class="dl-btn no-export" id="dlBtn" title="Download a PNG of the current map">⬇ Download image</button>
+
+    <div class="legend" id="legend">
+      <h4>Legend — threat status</h4>
+      <div class="lrow"><span class="ldot" style="background:#ff3b3b"></span> Danger</div>
+      <div class="lrow"><span class="ldot" style="background:#ff7a3d"></span> Inbound</div>
+      <div class="lrow"><span class="ldot" style="background:#ffb03d"></span> Overhead</div>
+      <div class="lrow"><span class="ldot" style="background:#4fb6ff"></span> Intercepted</div>
+      <div class="lrow"><span class="ldot" style="background:#3fd87f"></span> All clear</div>
+      <div class="lsub">✈ drones &nbsp;·&nbsp; ×N = count &nbsp;·&nbsp; → heading<br>shaded circle = area under danger</div>
+    </div>
+
+    <div class="export-stamp" id="exportStamp"></div>
+
     <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="vendor/html2canvas.min.js"></script>
     <script>
       'use strict';
 
@@ -473,6 +519,8 @@
       const map = L.map('map', { zoomControl: true }).setView([55.0, 40.0], 5);
       L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
         maxZoom: 19,
+        // CORS so the tiles can be drawn into a canvas for image export.
+        crossOrigin: 'anonymous',
         attribution: '© <a href="https://www.openstreetmap.org/copyright" style="color:#5aafff">OpenStreetMap</a> © <a href="https://carto.com/attributions" style="color:#5aafff">CARTO</a>',
       }).addTo(map);
 
@@ -487,6 +535,46 @@
       });
 
       const layer = L.layerGroup().addTo(map);
+
+      // Render the whole view (map tiles, markers, warning areas, legend,
+      // warnings panel) to a PNG and download it.
+      async function downloadImage() {
+        const btn = document.getElementById('dlBtn');
+        if (typeof html2canvas !== 'function') {
+          alert('Image renderer failed to load.');
+          return;
+        }
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = 'Rendering…';
+        document.body.classList.add('exporting');
+        document.getElementById('exportStamp').textContent =
+          'The Big Drone Detector · ' + new Date().toLocaleString() + ' · t.me/radarrussiia';
+        try {
+          const canvas = await html2canvas(document.body, {
+            useCORS: true,
+            backgroundColor: '#0d1b2a',
+            logging: false,
+            // Don't bake the download button or zoom controls into the image.
+            ignoreElements: (el) =>
+              el.classList && (el.classList.contains('no-export') || el.classList.contains('leaflet-control-zoom')),
+          });
+          const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+          const link = document.createElement('a');
+          link.download = `drone-map-${stamp}.png`;
+          link.href = canvas.toDataURL('image/png');
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+        } catch (err) {
+          alert('Could not render the map image: ' + err.message);
+        } finally {
+          document.body.classList.remove('exporting');
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      }
+      document.getElementById('dlBtn').addEventListener('click', downloadImage);
 
       // Build the live warnings list: active threats grouped by region, most
       // severe and most recent first. Clicking an entry flies there.
