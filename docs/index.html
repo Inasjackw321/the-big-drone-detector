@@ -100,9 +100,10 @@
       .legend .ldot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
       .legend .lsub { color: #8ab0d0; margin-top: 7px; border-top: 1px solid #2d4a6a; padding-top: 6px; line-height: 1.5; }
 
-      /* download button (top-right) + export-only timestamp stamp */
+      /* top-right control buttons */
+      .topctrl { position: absolute; top: 12px; right: 12px; z-index: 1001; display: flex; gap: 8px; }
       .dl-btn {
-        position: absolute; top: 12px; right: 12px; z-index: 1001; cursor: pointer;
+        cursor: pointer;
         background: rgba(13,27,42,0.92); color: #cde0f5; border: 1px solid #2d4a6a;
         border-radius: 20px; padding: 8px 14px; font-size: 13px; font-weight: 600;
         font-family: -apple-system,"Segoe UI",Arial,sans-serif;
@@ -110,6 +111,29 @@
       }
       .dl-btn:hover { background: #1a2d42; }
       .dl-btn:disabled { opacity: 0.6; cursor: default; }
+      .dl-btn.active { background: #5ad1ff; color: #08131f; border-color: #5ad1ff; }
+
+      /* ---- measure tool ---- */
+      #map.map-measuring { cursor: crosshair; }
+      /* let clicks pass through markers so every click adds a measure point */
+      body.measuring .leaflet-marker-pane,
+      body.measuring .leaflet-popup-pane { pointer-events: none; }
+      .measure-hint {
+        position: absolute; top: 14px; left: 50%; transform: translateX(-50%);
+        z-index: 1600; background: rgba(11,22,34,0.96); color: #fff;
+        padding: 9px 18px; border-radius: 22px; border: 1px solid #5ad1ff;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif; font-size: 13px;
+        box-shadow: 0 2px 14px rgba(0,0,0,0.5);
+      }
+      .measure-hint b { color: #bfeaff; }
+      .measure-label { background: none !important; border: none !important; }
+      .measure-label span {
+        background: rgba(11,22,34,0.9); color: #d6f3ff; border: 1px solid #5ad1ff;
+        border-radius: 6px; padding: 1px 6px; font-size: 11px; font-weight: 600;
+        white-space: nowrap; font-family: -apple-system,"Segoe UI",Arial,sans-serif;
+        box-shadow: 0 1px 4px rgba(0,0,0,0.45);
+      }
+      .measure-label.m-total span { background: #5ad1ff; color: #08131f; font-weight: 800; }
 
       /* ---- area selection ---- */
       #map.map-selecting { cursor: crosshair; }
@@ -204,7 +228,10 @@
       <div class="warn-list" id="warnList"></div>
     </div>
 
-    <button class="dl-btn no-export" id="dlBtn" title="Pick an area, then download it as a PNG">⬇ Download area</button>
+    <div class="topctrl no-export">
+      <button class="dl-btn" id="measureBtn" title="Measure distance on the map">📏 Measure</button>
+      <button class="dl-btn" id="dlBtn" title="Pick an area, then download it as a PNG">⬇ Download area</button>
+    </div>
 
     <!-- subtle export chrome, only visible while exporting an area -->
     <div class="exp-meta"><span class="t" id="expMetaTitle"></span><span class="s" id="expMetaSub"></span></div>
@@ -697,6 +724,9 @@
       });
 
       const layer = L.layerGroup().addTo(map);
+      // Separate layer for the measure tool so it survives data reloads and is
+      // captured into the exported area image.
+      const measureLayer = L.layerGroup().addTo(map);
 
       // Render the whole view (map tiles, markers, warning areas, legend,
       // warnings panel) to a PNG and download it.
@@ -860,7 +890,99 @@
         window.removeEventListener('pointerup', selUp);
       }
 
-      document.getElementById('dlBtn').addEventListener('click', startAreaSelect);
+      document.getElementById('dlBtn').addEventListener('click', () => {
+        finishMeasure();
+        startAreaSelect();
+      });
+
+      // ---- measure tool: click points, see cumulative distance, stays on the
+      // map (and so in the exported image) until you start a new measurement ----
+      const MEASURE_COLOR = '#5ad1ff';
+      let measuring = false;
+      let measurePts = [];
+      let measureHint = null;
+
+      function fmtKm(km) {
+        return km < 10 ? km.toFixed(2) + ' km' : Math.round(km) + ' km';
+      }
+      function measureLabel(text, isTotal) {
+        return L.divIcon({
+          className: 'measure-label' + (isTotal ? ' m-total' : ''),
+          html: `<span>${text}</span>`,
+          iconSize: null,
+          iconAnchor: [-8, 10],
+        });
+      }
+      function redrawMeasure(cursor) {
+        measureLayer.clearLayers();
+        const pts = cursor ? measurePts.concat([cursor]) : measurePts.slice();
+        if (pts.length >= 2) {
+          L.polyline(pts, {
+            color: MEASURE_COLOR, weight: 3, opacity: 0.9,
+            dashArray: cursor ? '6 6' : null, interactive: false,
+          }).addTo(measureLayer);
+        }
+        let total = 0;
+        for (let i = 0; i < pts.length; i++) {
+          if (i > 0) total += haversineKm(pts[i - 1].lat, pts[i - 1].lng, pts[i].lat, pts[i].lng);
+          const committed = i < measurePts.length;
+          if (committed) {
+            L.circleMarker(pts[i], {
+              radius: 3.5, color: MEASURE_COLOR, fillColor: '#0b1622',
+              fillOpacity: 1, weight: 2, interactive: false,
+            }).addTo(measureLayer);
+          }
+          if (i > 0) {
+            L.marker(pts[i], {
+              icon: measureLabel(fmtKm(total), i === pts.length - 1),
+              interactive: false, keyboard: false,
+            }).addTo(measureLayer);
+          }
+        }
+      }
+      function onMeasureClick(e) { measurePts.push(e.latlng); redrawMeasure(); }
+      function onMeasureMove(e) { if (measurePts.length) redrawMeasure(e.latlng); }
+      function onMeasureDbl(e) { L.DomEvent.stop(e); finishMeasure(); }
+      function onMeasureKey(e) { if (e.key === 'Escape' || e.key === 'Enter') finishMeasure(); }
+
+      function startMeasure() {
+        if (measuring) { finishMeasure(); return; }
+        cancelAreaSelect();
+        measuring = true;
+        measurePts = [];
+        measureLayer.clearLayers();
+        document.body.classList.add('measuring');
+        map.getContainer().classList.add('map-measuring');
+        const btn = document.getElementById('measureBtn');
+        btn.textContent = '✓ Done'; btn.classList.add('active');
+        measureHint = document.createElement('div');
+        measureHint.className = 'measure-hint no-export';
+        measureHint.innerHTML = 'Click points to measure distance · double-click or <b>Esc</b> to finish';
+        document.body.appendChild(measureHint);
+        map.on('click', onMeasureClick);
+        map.on('mousemove', onMeasureMove);
+        map.on('dblclick', onMeasureDbl);
+        map.doubleClickZoom.disable();
+        document.addEventListener('keydown', onMeasureKey);
+      }
+      function finishMeasure() {
+        if (!measuring) return;
+        measuring = false;
+        document.body.classList.remove('measuring');
+        map.getContainer().classList.remove('map-measuring');
+        const btn = document.getElementById('measureBtn');
+        btn.textContent = '📏 Measure'; btn.classList.remove('active');
+        if (measureHint) { measureHint.remove(); measureHint = null; }
+        map.off('click', onMeasureClick);
+        map.off('mousemove', onMeasureMove);
+        map.off('dblclick', onMeasureDbl);
+        setTimeout(() => map.doubleClickZoom.enable(), 0);
+        document.removeEventListener('keydown', onMeasureKey);
+        if (measurePts.length < 2) measureLayer.clearLayers(); // nothing measured → clear
+        else redrawMeasure(); // drop the live cursor segment
+      }
+
+      document.getElementById('measureBtn').addEventListener('click', startMeasure);
 
       // Build the live warnings list: active threats grouped by region, most
       // severe and most recent first. Clicking an entry flies there.
