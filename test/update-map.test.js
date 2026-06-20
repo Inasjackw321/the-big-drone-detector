@@ -144,3 +144,18 @@ test('processPost tags sightings with their source channel', async () => {
   assert.equal(objs[0].lat, 50.45);
   assert.equal(objs[0].count, 5);
 });
+
+test('pruneOld keeps only the last hour of sightings', () => {
+  const { pruneOld } = require('../scripts/update-map');
+  const now = Date.now();
+  const at = (minAgo) => new Date(now - minAgo * 60000).toISOString();
+  const sightings = [
+    { id: 'fresh', timestamp: at(5) },
+    { id: 'edge', timestamp: at(55) },
+    { id: 'old', timestamp: at(90) },
+    { id: 'ancient', timestamp: at(48 * 60) },
+  ];
+  const kept = pruneOld(sightings).map((s) => s.id);
+  assert.ok(kept.includes('fresh') && kept.includes('edge'));
+  assert.ok(!kept.includes('old') && !kept.includes('ancient'));
+});
