@@ -85,6 +85,15 @@ test('geocodes a specific town via Nominatim before the region centroid', async 
   assert.match(url, /countrycodes=ru,ua/);
 });
 
+test('rejects a geocode that lands far from the stated oblast', async () => {
+  // Nominatim returns a same-named place thousands of km away.
+  const fetchImpl = async () => ({ ok: true, json: async () => [{ display_name: 'Faketown', lat: '60.0', lon: '100.0' }] });
+  const g = new Geocoder({ fetchImpl });
+  const r = await g.resolve({ location: 'Faketown', region: 'Sumy Oblast' });
+  assert.equal(r.source, 'gazetteer-region'); // far hit replaced by the Sumy centroid
+  assert.ok(Math.abs(r.lat - 50.9) < 0.3);
+});
+
 test('falls back to region centroid when only a region is known', async () => {
   const g = makeGeocoder();
   const r = await g.resolve({

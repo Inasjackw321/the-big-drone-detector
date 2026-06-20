@@ -32,6 +32,15 @@ function inRegionBbox(lat, lon) {
   );
 }
 
+// Great-circle distance in km, for region-bounds sanity checks.
+function haversineKm(lat1, lon1, lat2, lon2) {
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLa = toRad(lat2 - lat1), dLo = toRad(lon2 - lon1);
+  const a = Math.sin(dLa / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLo / 2) ** 2;
+  return 2 * 6371 * Math.asin(Math.sqrt(a));
+}
+
 class Geocoder {
   constructor({ gazetteerPath, fetchImpl, userAgent, enableNominatim = true } = {}) {
     this.fetchImpl = fetchImpl || globalThis.fetch;
@@ -178,6 +187,16 @@ class Geocoder {
         name: sighting.location,
         region: sighting.region || '',
       };
+    }
+
+    // Sanity-check looked-up / guessed coordinates against the stated oblast:
+    // a town that resolves >450 km from its region's centroid is almost
+    // certainly the wrong same-named place — use the centroid instead.
+    if (hit && (hit.source === 'nominatim' || hit.source === 'llm') && sighting.region) {
+      const rc = this.lookupRegion(sighting.region);
+      if (rc && haversineKm(hit.lat, hit.lon, rc.lat, rc.lon) > 450) {
+        hit = rc;
+      }
     }
 
     const result = hit
