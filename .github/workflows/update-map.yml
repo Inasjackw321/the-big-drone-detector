@@ -1,8 +1,8 @@
 name: Update map data
 
-# Fetches new posts from @radarrussiia, extracts sightings via OpenRouter,
-# geocodes them, and commits the result to docs/data/sightings.json so the
-# GitHub Pages site stays live.
+# Fetches new posts from @radarrussiia, @kpszsu and @lpr1_treugolnik, extracts
+# sightings via OpenRouter, geocodes them, and commits the result to
+# docs/data/sightings.json so the GitHub Pages site stays live.
 #
 # Requires secret: OPENROUTER_API_KEY (add at repo Settings → Secrets → Actions)
 
@@ -17,12 +17,22 @@ on:
 permissions:
   contents: write
 
+# Never let a scheduled run and a manual "Run workflow" push at the same time —
+# queue them instead so the commit/push step can't collide.
+concurrency:
+  group: update-map
+  cancel-in-progress: false
+
 jobs:
   update:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -37,7 +47,7 @@ jobs:
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
           TELEGRAM_CHANNELS: radarrussiia,kpszsu,lpr1_treugolnik
-          DDX_RETENTION_HOURS: '48'
+          DDX_RETENTION_HOURS: '1'
 
       - name: Commit and push if data changed
         run: |
@@ -45,8 +55,20 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/data/sightings.json
           if git diff --staged --quiet; then
-            echo "No new sightings — skipping commit"
-          else
-            git commit -m "chore: update sightings [skip ci]"
-            git push
+            echo "No changes — skipping commit"
+            exit 0
           fi
+          git commit -m "chore: update sightings [skip ci]"
+          # Push with rebase-and-retry so a concurrent scheduled run can't make
+          # this fail with a non-fast-forward error.
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "pushed on attempt $attempt"
+              exit 0
+            fi
+            echo "push failed (attempt $attempt) — rebasing on latest main and retrying"
+            git pull --rebase --autostash origin main || true
+            sleep $((attempt * 3))
+          done
+          echo "::error::could not push sightings update after 5 attempts"
+          exit 1

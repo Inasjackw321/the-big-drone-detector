@@ -13,7 +13,7 @@
  * Optional env vars:
  *   TELEGRAM_CHANNELS     default: radarrussiia,kpszsu  (comma-separated)
  *   OPENROUTER_MODEL      default: openrouter/owl-alpha
- *   DDX_RETENTION_HOURS   default: 48
+ *   DDX_RETENTION_HOURS   default: 1   (older sightings are pruned out)
  *   DDX_MAX_NEW_POSTS     default: 30  (cap per run to stay within rate limits)
  */
 
@@ -37,7 +37,9 @@ const CHANNELS = (process.env.TELEGRAM_CHANNELS || process.env.TELEGRAM_CHANNEL 
   .map((s) => s.trim())
   .filter(Boolean);
 const MODEL = process.env.OPENROUTER_MODEL || 'openrouter/owl-alpha';
-const RETENTION_MS = (parseInt(process.env.DDX_RETENTION_HOURS || '48', 10)) * 3600 * 1000;
+// Keep only the last hour of data — the map only shows the last hour anyway, so
+// older entries are pruned out of sightings.json instead of lingering forever.
+const RETENTION_MS = (parseFloat(process.env.DDX_RETENTION_HOURS || '1')) * 3600 * 1000;
 const MAX_NEW_POSTS = parseInt(process.env.DDX_MAX_NEW_POSTS || '30', 10);
 const API_KEY = process.env.OPENROUTER_API_KEY || '';
 
@@ -383,13 +385,20 @@ async function main() {
     lastPostId[channel] = maxSeen;
   }
 
-  if (!anyNewPosts) {
-    console.log('[update-map] nothing new on any channel — exiting without writing');
-    return;
-  }
-
+  // Always merge + prune, even on a quiet run, so sightings older than the
+  // retention window are removed promptly (the channel can go quiet for a
+  // while and we still want stale markers gone).
   const merged = backfillBearings(dedup([...state.sightings, ...newSightingObjs]));
   const pruned = dropDestinationEchoes(pruneOld(merged));
+
+  const lastPostIdChanged = JSON.stringify(lastPostId) !== JSON.stringify(state.lastPostId || {});
+  const removed = (state.sightings || []).length + newSightingObjs.length - pruned.length;
+  const changed = newSightingObjs.length > 0 || removed > 0 || lastPostIdChanged;
+
+  if (!changed) {
+    console.log('[update-map] no new posts and nothing to prune — leaving sightings.json unchanged');
+    return;
+  }
 
   const output = {
     sightings: pruned,
@@ -400,7 +409,7 @@ async function main() {
   fs.mkdirSync(path.dirname(DOCS_DATA), { recursive: true });
   fs.writeFileSync(DOCS_DATA, JSON.stringify(output, null, 2));
   console.log(
-    `[update-map] done. +${newSightingObjs.length} new sightings, ${pruned.length} total. lastPostId=${JSON.stringify(lastPostId)}`
+    `[update-map] done. +${newSightingObjs.length} new, -${Math.max(0, removed)} pruned, ${pruned.length} total. lastPostId=${JSON.stringify(lastPostId)}`
   );
 }
 
@@ -414,6 +423,7 @@ if (require.main === module) {
 module.exports = {
   main,
   processPost,
+  pruneOld,
   backfillFromHeuristic,
   stripSummaryCounts,
   extractWithRetry,
