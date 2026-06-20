@@ -71,25 +71,31 @@ class Geocoder {
     }
   }
 
-  /** Synchronous gazetteer-only lookup. Returns entry or null. */
+  /** Strict gazetteer lookup of a specific place (no region-centroid fallback). */
   lookupLocal(name, region) {
     if (!name) return null;
     const key = normalizeKey(name);
     if (this.index.has(key)) return this.index.get(key);
 
-    // Try "name region" combined and region alone as a coarse fallback.
+    // Try "name region" combined.
     if (region) {
       const combo = normalizeKey(`${name} ${region}`);
       if (this.index.has(combo)) return this.index.get(combo);
-      const rkey = normalizeKey(region);
-      if (this.index.has(rkey)) {
-        return { ...this.index.get(rkey), source: 'gazetteer-region' };
-      }
     }
 
     // Loose contains match against multi-word keys (e.g. "kursk airbase").
     for (const [k, entry] of this.index) {
       if (k.includes(key) && key.length >= 4) return entry;
+    }
+    return null;
+  }
+
+  /** Coarse region-centroid fallback — only used when nothing else resolves. */
+  lookupRegion(region) {
+    if (!region) return null;
+    const rkey = normalizeKey(region);
+    if (this.index.has(rkey)) {
+      return { ...this.index.get(rkey), source: 'gazetteer-region' };
     }
     return null;
   }
@@ -140,20 +146,24 @@ class Geocoder {
     const cacheKey = normalizeKey(`${sighting.location}|${sighting.region || ''}`);
     if (this.cache.has(cacheKey)) return this.cache.get(cacheKey);
 
-    // 1) Curated offline gazetteer first — accurate and deterministic, so a
-    //    given place always lands on the same point (and the model can't
-    //    drift it around with guessed coordinates).
+    // 1) Curated offline gazetteer — exact place matches only.
     let hit = this.lookupLocal(sighting.location, sighting.region);
 
-    // 2) Nominatim, constrained to RU/UA.
+    // 2) Nominatim (RU + UA) for the specific town BEFORE falling back to a
+    //    region centroid — so a real place like "Okhtyrka, Sumy Oblast" lands
+    //    on the town, not on the oblast capital. Country is left to
+    //    countrycodes=ru,ua (don't append "Russia" — many places are Ukrainian).
     if (!hit) {
       const q = sighting.region
-        ? `${sighting.location}, ${sighting.region}, Russia`
-        : `${sighting.location}, Russia`;
+        ? `${sighting.location}, ${sighting.region}`
+        : sighting.location;
       hit = await this._nominatim(q, timeoutMs);
     }
 
-    // 3) Fall back to the model's own coordinates only when nothing else
+    // 3) Coarse region centroid only if the town couldn't be found.
+    if (!hit) hit = this.lookupRegion(sighting.region);
+
+    // 4) Fall back to the model's own coordinates only when nothing else
     //    resolves, and only if they land in the plausible region.
     if (
       !hit &&

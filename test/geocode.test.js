@@ -62,6 +62,29 @@ test('resolves major Ukrainian cities from the gazetteer', async () => {
   assert.equal(kharkiv.matchedName, 'Kharkiv');
 });
 
+test('resolves Ukrainian towns and colloquial oblast forms', async () => {
+  const g = makeGeocoder();
+  const okhtyrka = await g.resolve({ location: 'Okhtyrka', region: 'Sumy Oblast' });
+  assert.equal(okhtyrka.source, 'gazetteer'); // the town itself, not the Sumy centroid
+  assert.ok(Math.abs(okhtyrka.lat - 50.31) < 0.1);
+  const sumshchyna = await g.resolve({ location: 'Сумщина' });
+  assert.equal(sumshchyna.matchedName, 'Sumy');
+});
+
+test('geocodes a specific town via Nominatim before the region centroid', async () => {
+  let url = '';
+  const fetchImpl = async (u) => {
+    url = u;
+    return { ok: true, json: async () => [{ display_name: 'Velyka Pysarivka', lat: '50.42', lon: '35.48' }] };
+  };
+  const g = new Geocoder({ fetchImpl });
+  const r = await g.resolve({ location: 'Velyka Pysarivka', region: 'Sumy Oblast' });
+  assert.equal(r.source, 'nominatim'); // not the Sumy oblast centroid
+  assert.ok(Math.abs(r.lat - 50.42) < 0.001);
+  assert.ok(!/Russia/i.test(decodeURIComponent(url))); // country left to countrycodes
+  assert.match(url, /countrycodes=ru,ua/);
+});
+
 test('falls back to region centroid when only a region is known', async () => {
   const g = makeGeocoder();
   const r = await g.resolve({
