@@ -21,6 +21,7 @@
       .popup-meta  { color: #8ab0d0; font-size: 12px; margin-bottom: 3px; }
       .popup-status { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
       .popup-acc   { color: #6f93b4; font-size: 11px; margin-bottom: 3px; }
+      .popup-confirm { color: #3fd87f; font-size: 11.5px; font-weight: 600; margin-bottom: 3px; }
       .popup-dest  { color: #ffd27f; font-size: 12px; margin-bottom: 3px; }
       .popup-alert { color: #ff9f3d; font-size: 12px; font-weight: 600; margin-bottom: 3px; }
       .popup-text  {
@@ -462,6 +463,15 @@
         if (diff < 60) return diff + 'm ago';
         return Math.round(diff / 60) + 'h ago';
       }
+      const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      // Always render absolute times in UTC, e.g. "19 Jun 2026, 23:08 UTC".
+      function fmtUTC(d) {
+        d = d instanceof Date ? d : new Date(d);
+        if (isNaN(d)) return '';
+        const p = (n) => String(n).padStart(2, '0');
+        return `${d.getUTCDate()} ${MON[d.getUTCMonth()]} ${d.getUTCFullYear()}, ` +
+          `${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`;
+      }
       function bearingWord(b) {
         const dirs = ['N','NE','E','SE','S','SW','W','NW'];
         return dirs[Math.round(b / 45) % 8];
@@ -636,19 +646,28 @@
           `<div class="popup-status" style="color:${info.color}">● ${esc(info.label)}` +
           `${info.level >= 3 ? ' — warning' : ''}</div>`;
 
-        // Accuracy line: how many reports back this, how precise the location
-        // is, and the extraction confidence.
+        // When two or more independent channels report the same place, flag it
+        // as corroborated — a strong reliability signal.
+        const nSources = s.sources ? s.sources.length : (s.channel ? 1 : 0);
+        const confirmLine = nSources >= 2
+          ? `<div class="popup-confirm">✓ Confirmed by ${nSources} sources</div>`
+          : '';
+
+        // Accuracy line: reports, precision, confidence, sources, UTC time.
         const accBits = [];
         if (s.reports > 1) accBits.push(`${s.reports} reports`);
         accBits.push(s.geocodePrecision === 'region' ? 'region-level (approx.)' : 'pinpoint');
         if (typeof s.confidence === 'number') accBits.push(`${Math.round(s.confidence * 100)}% conf.`);
         if (s.sources && s.sources.length) accBits.push('via ' + s.sources.map((c) => '@' + c).join(', '));
         else if (s.channel) accBits.push('via @' + s.channel);
+        const utc = fmtUTC(s.timestamp);
+        if (utc) accBits.push(utc);
         const accLine = `<div class="popup-acc">${esc(accBits.join(' · '))}</div>`;
 
         return `
           <div class="popup-title">${esc(s.location)}</div>
           ${statusLine}
+          ${confirmLine}
           <div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>
           ${going}
           ${accLine}
@@ -699,7 +718,7 @@
         const warns = inArea.filter((s) => statusInfo(s).warn);
         document.getElementById('expMetaTitle').textContent = top ? top[0] : 'Selected area';
         document.getElementById('expMetaSub').textContent =
-          `${new Date().toLocaleString()} · ${active.length} active · ${warns.length} warnings`;
+          `${fmtUTC(new Date())} · ${active.length} active · ${warns.length} warnings`;
 
         // Warnings list, grouped by region, most severe first.
         const groups = new Map();
