@@ -159,3 +159,16 @@ test('pruneOld keeps only the last hour of sightings', () => {
   assert.ok(kept.includes('fresh') && kept.includes('edge'));
   assert.ok(!kept.includes('old') && !kept.includes('ancient'));
 });
+
+test('mapPool runs with bounded concurrency and preserves order', async () => {
+  const { mapPool } = require('../scripts/update-map');
+  let inFlight = 0, maxInFlight = 0;
+  const out = await mapPool([1, 2, 3, 4, 5, 6, 7], 3, async (n) => {
+    inFlight++; maxInFlight = Math.max(maxInFlight, inFlight);
+    await new Promise((r) => setTimeout(r, 5));
+    inFlight--;
+    return n * 2;
+  });
+  assert.deepEqual(out, [2, 4, 6, 8, 10, 12, 14]); // order preserved
+  assert.ok(maxInFlight <= 3, `concurrency exceeded: ${maxInFlight}`);
+});

@@ -41,7 +41,35 @@ const MODEL = process.env.OPENROUTER_MODEL || 'openrouter/owl-alpha';
 // older entries are pruned out of sightings.json instead of lingering forever.
 const RETENTION_MS = (parseFloat(process.env.DDX_RETENTION_HOURS || '1')) * 3600 * 1000;
 const MAX_NEW_POSTS = parseInt(process.env.DDX_MAX_NEW_POSTS || '30', 10);
+// How many posts to extract from the LLM at once. Parallelism keeps a busy run
+// well under the workflow timeout instead of processing posts one-by-one.
+const CONCURRENCY = parseInt(process.env.DDX_CONCURRENCY || '6', 10);
+const LLM_TIMEOUT_MS = parseInt(process.env.DDX_LLM_TIMEOUT_MS || '25000', 10);
+const GEOCACHE = path.join(__dirname, '..', 'docs', 'data', 'geocode-cache.json');
 const API_KEY = process.env.OPENROUTER_API_KEY || '';
+
+// Run an async fn over items with a bounded number in flight at once.
+async function mapPool(items, limit, fn) {
+  const results = new Array(items.length);
+  let next = 0;
+  const worker = async () => {
+    while (next < items.length) {
+      const i = next++;
+      results[i] = await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
+}
+
+function loadJson(file, fallback) {
+  try {
+    if (fs.existsSync(file)) return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (err) {
+    console.warn(`[update-map] could not read ${path.basename(file)}: ${err.message}`);
+  }
+  return fallback;
+}
 
 function loadState() {
   try {
@@ -230,10 +258,10 @@ function stripSummaryCounts(sightings) {
 async function extractWithRetry(llm, post, attempts = 3) {
   for (let i = 1; i <= attempts; i++) {
     try {
-      return await llm.extractSightings(post);
+      return await llm.extractSightings(post, LLM_TIMEOUT_MS);
     } catch (err) {
       console.warn(`  [llm-retry ${i}/${attempts}] post ${post.postId}: ${err.message}`);
-      if (i < attempts) await sleep(i * 1500);
+      if (i < attempts) await sleep(i * 800);
     }
   }
   return null;
@@ -353,15 +381,18 @@ async function main() {
   const state = loadState();
   const lastPostId = { ...(state.lastPostId || {}) };
   const llm = new OpenRouterClient({ apiKey: API_KEY, model: MODEL });
-  const geocoder = new Geocoder();
+  // Warm-start geocoding from the persisted cache so known places resolve
+  // instantly — keeps runs fast and pins consistent.
+  const geocoder = new Geocoder({ initialCache: loadJson(GEOCACHE, {}) });
 
   const newSightingObjs = [];
   let anyNewPosts = false;
 
+  // Gather every new post across channels first (fetches are quick), then
+  // extract them in parallel so a busy backlog doesn't time the run out.
+  const tasks = [];
   for (const channel of CHANNELS) {
     const last = lastPostId[channel] || 0;
-    console.log(`[update-map] channel=@${channel}  lastPostId=${last}`);
-
     let posts;
     try {
       posts = await fetchChannelPosts({ channel });
@@ -370,19 +401,22 @@ async function main() {
       console.error(`[update-map] @${channel} fetch failed: ${err.message}`);
       continue;
     }
-
     const newPosts = posts.filter((p) => p.postId > last && p.text).slice(-MAX_NEW_POSTS);
     console.log(`[update-map] @${channel}: ${posts.length} posts, ${newPosts.length} new`);
     if (newPosts.length === 0) continue;
     anyNewPosts = true;
+    for (const post of newPosts) tasks.push({ post, channel });
+    // We attempt every new post, so advance the cursor past all of them.
+    lastPostId[channel] = Math.max(last, ...newPosts.map((p) => p.postId));
+  }
 
-    let maxSeen = last;
-    for (const post of newPosts) {
-      maxSeen = Math.max(maxSeen, post.postId);
-      const objs = await processPost(post, channel, llm, geocoder);
-      newSightingObjs.push(...objs);
-    }
-    lastPostId[channel] = maxSeen;
+  const t0 = Date.now();
+  const objArrays = await mapPool(tasks, CONCURRENCY, ({ post, channel }) =>
+    processPost(post, channel, llm, geocoder)
+  );
+  for (const arr of objArrays) newSightingObjs.push(...arr);
+  if (tasks.length) {
+    console.log(`[update-map] extracted ${tasks.length} posts in ${((Date.now() - t0) / 1000).toFixed(1)}s (x${CONCURRENCY})`);
   }
 
   // Always merge + prune, even on a quiet run, so sightings older than the
@@ -408,6 +442,16 @@ async function main() {
 
   fs.mkdirSync(path.dirname(DOCS_DATA), { recursive: true });
   fs.writeFileSync(DOCS_DATA, JSON.stringify(output, null, 2));
+
+  // Persist the geocode cache so future runs skip re-resolving known places.
+  try {
+    const cache = geocoder.dumpCache();
+    fs.writeFileSync(GEOCACHE, JSON.stringify(cache, null, 0));
+    console.log(`[update-map] geocode cache: ${Object.keys(cache).length} places`);
+  } catch (err) {
+    console.warn('[update-map] could not write geocode cache:', err.message);
+  }
+
   console.log(
     `[update-map] done. +${newSightingObjs.length} new, -${Math.max(0, removed)} pruned, ${pruned.length} total. lastPostId=${JSON.stringify(lastPostId)}`
   );
@@ -423,6 +467,7 @@ if (require.main === module) {
 module.exports = {
   main,
   processPost,
+  mapPool,
   pruneOld,
   backfillFromHeuristic,
   stripSummaryCounts,
