@@ -42,7 +42,7 @@ function haversineKm(lat1, lon1, lat2, lon2) {
 }
 
 class Geocoder {
-  constructor({ gazetteerPath, fetchImpl, userAgent, enableNominatim = true } = {}) {
+  constructor({ gazetteerPath, fetchImpl, userAgent, enableNominatim = true, initialCache } = {}) {
     this.fetchImpl = fetchImpl || globalThis.fetch;
     this.userAgent =
       userAgent || 'the-big-drone-detector/1.0 (https://github.com/Inasjackw321/the-big-drone-detector)';
@@ -50,9 +50,26 @@ class Geocoder {
     this.cache = new Map();
     this.index = new Map();
     this._lastNominatimAt = 0;
+    this._nomChain = Promise.resolve(); // serialises Nominatim under parallelism
+    // Warm-start the cache from a persisted geocode cache so repeat places
+    // resolve instantly (and identically) instead of re-hitting Nominatim.
+    if (initialCache && typeof initialCache === 'object') {
+      for (const [k, v] of Object.entries(initialCache)) {
+        if (v && typeof v.lat === 'number') this.cache.set(k, v);
+      }
+    }
     this._loadGazetteer(
       gazetteerPath || path.join(__dirname, '..', 'data', 'ru-gazetteer.json')
     );
+  }
+
+  /** Plain object of every resolved place, for persisting across runs. */
+  dumpCache() {
+    const out = {};
+    for (const [k, v] of this.cache) {
+      if (v && typeof v.lat === 'number') out[k] = v;
+    }
+    return out;
   }
 
   _loadGazetteer(file) {
@@ -109,8 +126,16 @@ class Geocoder {
     return null;
   }
 
+  // Serialise Nominatim across (possibly parallel) callers so we never exceed
+  // the 1 req/sec usage policy even when many posts are processed at once.
   async _nominatim(query, timeoutMs) {
     if (!this.enableNominatim || typeof this.fetchImpl !== 'function') return null;
+    const task = () => this._nominatimRequest(query, timeoutMs);
+    this._nomChain = this._nomChain.then(task, task);
+    return this._nomChain;
+  }
+
+  async _nominatimRequest(query, timeoutMs) {
     // Respect Nominatim's 1 req/sec usage policy.
     const wait = 1100 - (Date.now() - this._lastNominatimAt);
     if (wait > 0) await new Promise((r) => setTimeout(r, wait));

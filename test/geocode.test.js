@@ -116,3 +116,15 @@ test('caches results for repeat lookups', async () => {
   const b = await g.resolve({ location: 'Kazan' });
   assert.deepEqual(a, b);
 });
+
+test('warm-starts from a persisted cache and dumps it back', async () => {
+  const initialCache = {
+    'fakeville|sumy oblast': { lat: 50.4, lon: 35.5, source: 'nominatim', matchedName: 'Fakeville', region: 'Sumy Oblast', precision: 'point' },
+  };
+  const g = new Geocoder({ enableNominatim: false, initialCache });
+  const r = await g.resolve({ location: 'Fakeville', region: 'Sumy Oblast' });
+  assert.equal(r.source, 'nominatim'); // came from the warm cache, no network
+  assert.ok(Math.abs(r.lat - 50.4) < 0.001);
+  const dumped = g.dumpCache();
+  assert.ok(dumped['fakeville|sumy oblast']);
+});
