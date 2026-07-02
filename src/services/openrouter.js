@@ -146,10 +146,21 @@ function normalizeExtraction(raw) {
   return out;
 }
 
+// Default model cascade: best model first, progressively smaller fallbacks.
+// Each extraction attempt uses the next model in the list so a transient
+// provider failure automatically tries a different engine.
+const DEFAULT_MODELS = [
+  'qwen/qwen3-next-80b-a3b-instruct:free',
+  'nvidia/nemotron-3-nano-30b-a3b:free',
+  'liquid/lfm-2.5-1.2b-instruct:free',
+];
+
 class OpenRouterClient {
-  constructor({ apiKey, model, baseUrl, fetchImpl } = {}) {
+  constructor({ apiKey, model, models, baseUrl, fetchImpl } = {}) {
     this.apiKey = apiKey;
-    this.model = model || 'openrouter/owl-alpha';
+    // Accept an explicit array, or wrap a single model string, or use defaults.
+    this.models = models || (model ? [model] : DEFAULT_MODELS);
+    this.model = this.models[0]; // backward-compat property
     this.baseUrl = (baseUrl || 'https://openrouter.ai/api/v1').replace(/\/$/, '');
     this.fetchImpl = fetchImpl || globalThis.fetch;
   }
@@ -158,19 +169,21 @@ class OpenRouterClient {
    * Extract structured sightings from a single Telegram post.
    * @param {{text:string, link?:string, date?:string}} post
    * @param {number} [timeoutMs]
+   * @param {number} [modelIndex] Which model in the cascade to use (wraps on overflow).
    * @returns {Promise<{isRelevant:boolean, summary:string, sightings:Array}>}
    */
-  async extractSightings(post, timeoutMs = 45000) {
+  async extractSightings(post, timeoutMs = 45000, modelIndex = 0) {
     if (!this.apiKey) throw new Error('openrouter: missing API key');
     if (typeof this.fetchImpl !== 'function') {
       throw new Error('openrouter: no fetch implementation available');
     }
+    const model = this.models[modelIndex % this.models.length];
     const userContent = `Post date: ${post.date || 'unknown'}\nPost link: ${
       post.link || 'unknown'
     }\n\nPost text:\n"""\n${post.text || ''}\n"""`;
 
     const body = {
-      model: this.model,
+      model,
       messages: [
         { role: 'system', content: SYSTEM_PROMPT },
         { role: 'user', content: userContent },
@@ -242,6 +255,7 @@ class OpenRouterClient {
 
 module.exports = {
   OpenRouterClient,
+  DEFAULT_MODELS,
   SYSTEM_PROMPT,
   extractJsonObject,
   normalizeExtraction,
