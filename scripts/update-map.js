@@ -36,7 +36,20 @@ const CHANNELS = (process.env.TELEGRAM_CHANNELS || process.env.TELEGRAM_CHANNEL 
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);
-const MODEL = process.env.OPENROUTER_MODEL || 'openrouter/owl-alpha';
+// Model cascade: each retry attempt uses the next model, so a rate-limit or
+// provider failure on model 0 automatically falls back to model 1, then 2.
+// OPENROUTER_MODELS env var (comma-separated) overrides the default cascade;
+// OPENROUTER_MODEL (single) is also accepted for backward compatibility.
+const DEFAULT_MODELS = [
+  'qwen/qwen3-next-80b-a3b-instruct:free',
+  'nvidia/nemotron-3-nano-30b-a3b:free',
+  'liquid/lfm-2.5-1.2b-instruct:free',
+];
+const MODELS = process.env.OPENROUTER_MODELS
+  ? process.env.OPENROUTER_MODELS.split(',').map((s) => s.trim()).filter(Boolean)
+  : process.env.OPENROUTER_MODEL
+  ? [process.env.OPENROUTER_MODEL]
+  : DEFAULT_MODELS;
 // Keep only the last hour of data — the map only shows the last hour anyway, so
 // older entries are pruned out of sightings.json instead of lingering forever.
 const RETENTION_MS = (parseFloat(process.env.DDX_RETENTION_HOURS || '1')) * 3600 * 1000;
@@ -253,14 +266,17 @@ function stripSummaryCounts(sightings) {
   return sightings;
 }
 
-// Ask the model, retrying transient failures so a flaky call doesn't drop a
-// post. Returns null if every attempt failed.
+// Ask the model cascade, advancing to the next model on each failure so that
+// a rate-limit or provider outage automatically tries a different engine.
+// Returns null only if every attempt across all models failed.
 async function extractWithRetry(llm, post, attempts = 3) {
   for (let i = 1; i <= attempts; i++) {
+    const modelIndex = i - 1; // attempt 1 → model 0, attempt 2 → model 1, …
     try {
-      return await llm.extractSightings(post, LLM_TIMEOUT_MS);
+      return await llm.extractSightings(post, LLM_TIMEOUT_MS, modelIndex);
     } catch (err) {
-      console.warn(`  [llm-retry ${i}/${attempts}] post ${post.postId}: ${err.message}`);
+      const modelName = (llm.models || [])[modelIndex % ((llm.models || []).length || 1)] || '?';
+      console.warn(`  [llm-retry ${i}/${attempts}] ${modelName} post ${post.postId}: ${err.message}`);
       if (i < attempts) await sleep(i * 800);
     }
   }
@@ -380,7 +396,8 @@ async function main() {
 
   const state = loadState();
   const lastPostId = { ...(state.lastPostId || {}) };
-  const llm = new OpenRouterClient({ apiKey: API_KEY, model: MODEL });
+  const llm = new OpenRouterClient({ apiKey: API_KEY, models: MODELS });
+  console.log(`[update-map] model cascade: ${MODELS.join(' → ')}`);
   // Warm-start geocoding from the persisted cache so known places resolve
   // instantly — keeps runs fast and pins consistent.
   const geocoder = new Geocoder({ initialCache: loadJson(GEOCACHE, {}) });

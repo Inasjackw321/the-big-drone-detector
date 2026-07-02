@@ -210,6 +210,23 @@
       .exp-warns .er i { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; }
       .exp-warns .er b { color: #eaf1f8; font-weight: 600; }
       .exp-warns .eq { padding: 8px 12px; color: #8ea7bf; font-size: 11px; }
+
+      /* ---- filter bar ---- */
+      .filter-bar {
+        position: absolute; top: 52px; right: 12px; z-index: 1001;
+        display: flex; gap: 5px; flex-wrap: wrap; max-width: 310px; justify-content: flex-end;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif;
+      }
+      .filter-chip {
+        cursor: pointer; background: rgba(13,27,42,0.88); color: #8ab0d0;
+        border: 1px solid #2d4a6a; border-radius: 14px; padding: 4px 11px;
+        font-size: 11.5px; box-shadow: 0 1px 6px rgba(0,0,0,0.4);
+        backdrop-filter: blur(6px); white-space: nowrap; user-select: none;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif;
+      }
+      .filter-chip:hover { background: #1a2d42; color: #cde0f5; }
+      .filter-chip.active { background: #243f5e; color: #fff; border-color: #5aafff; }
+      body.export-skin .filter-bar { display: none !important; }
     </style>
   </head>
   <body>
@@ -218,7 +235,7 @@
     <div class="bar">
       <span class="dot"></span>
       <b>The Big Drone Detector</b> &nbsp;·&nbsp;
-      <span id="count">loading…</span> &nbsp;·&nbsp;
+      <span id="count">loading…</span>&nbsp;<span id="threatBadge"></span> &nbsp;·&nbsp;
       <a href="https://t.me/radarrussiia" target="_blank" rel="noopener">@radarrussiia</a> ·
       <a href="https://t.me/kpszsu" target="_blank" rel="noopener">@kpszsu</a>
     </div>
@@ -231,6 +248,15 @@
     <div class="topctrl no-export">
       <button class="dl-btn" id="measureBtn" title="Measure distance on the map">📏 Measure</button>
       <button class="dl-btn" id="dlBtn" title="Pick an area, then download it as a PNG">⬇ Download area</button>
+    </div>
+
+    <div class="filter-bar" id="filterBar">
+      <button class="filter-chip active" data-filter="all">All</button>
+      <button class="filter-chip" data-filter="danger">Danger</button>
+      <button class="filter-chip" data-filter="inbound">Inbound</button>
+      <button class="filter-chip" data-filter="cleared">Cleared</button>
+      <button class="filter-chip" data-filter="drone">Drones</button>
+      <button class="filter-chip" data-filter="missile">Missiles</button>
     </div>
 
     <!-- subtle export chrome, only visible while exporting an area -->
@@ -263,6 +289,9 @@
 
       const ONE_HOUR_MS = 60 * 60 * 1000;
       let currentSightings = []; // latest consolidated sightings, for the exporter
+      let activeFilter = 'all';  // current filter chip selection
+      let hasAutoZoomed = false; // only auto-zoom on first load
+      let prevSightingCount = 0; // for new-sightings flash
 
       const THREAT = {
         drone:             { label: 'Drone / UAV',      color: '#ff5c5c', sym: '✈' },
@@ -427,6 +456,18 @@
         return 2 * 6371 * Math.asin(Math.sqrt(a));
       }
 
+      // Project a point distKm km along bearingDeg from (lat, lon).
+      function projectPoint(lat, lon, bearingDeg, distKm) {
+        const R = 6371;
+        const d = distKm / R;
+        const b = bearingDeg * Math.PI / 180;
+        const φ1 = lat * Math.PI / 180;
+        const λ1 = lon * Math.PI / 180;
+        const φ2 = Math.asin(Math.sin(φ1) * Math.cos(d) + Math.cos(φ1) * Math.sin(d) * Math.cos(b));
+        const λ2 = λ1 + Math.atan2(Math.sin(b) * Math.sin(d) * Math.cos(φ1), Math.cos(d) - Math.sin(φ1) * Math.sin(φ2));
+        return [φ2 * 180 / Math.PI, ((λ2 * 180 / Math.PI) + 540) % 360 - 180];
+      }
+
       // Only draw an arrow when we're confident WHERE it's going: a named
       // destination we have coordinates for, within a sane range. A compass
       // heading or projected guess is NOT enough — no destination, no arrow.
@@ -502,6 +543,30 @@
       function bearingWord(b) {
         const dirs = ['N','NE','E','SE','S','SW','W','NW'];
         return dirs[Math.round(b / 45) % 8];
+      }
+
+      // Source channel → color badge for popups.
+      const CHANNEL_COLORS = {
+        radarrussiia: '#ff5c5c',
+        kpszsu: '#4fb6ff',
+        lpr1_treugolnik: '#ff9f3d',
+      };
+      function channelTag(name) {
+        if (!name) return '';
+        const c = CHANNEL_COLORS[name] || '#8ab0d0';
+        return `<span style="background:${c};color:#0d1b2a;border-radius:3px;padding:0 5px;font-size:10px;font-weight:700;vertical-align:middle">@${esc(name)}</span>`;
+      }
+
+      // Filter predicate driving the filter-bar chips.
+      function matchesFilter(s) {
+        switch (activeFilter) {
+          case 'danger':  return statusInfo(s).level >= 3;
+          case 'inbound': return s.status === 'approaching' || s.status === 'overhead';
+          case 'cleared': return s.status === 'all_clear' || s.status === 'shot_down';
+          case 'drone':   return s.threatType === 'drone';
+          case 'missile': return ['missile','cruise_missile','ballistic_missile'].includes(s.threatType);
+          default: return true;
+        }
       }
 
       // ---- glyph builders: each returns an SVG fragment centred at (cx,cy) ----
@@ -680,16 +745,16 @@
           ? `<div class="popup-confirm">✓ Confirmed by ${nSources} sources</div>`
           : '';
 
-        // Accuracy line: reports, precision, confidence, sources, UTC time.
-        const accBits = [];
-        if (s.reports > 1) accBits.push(`${s.reports} reports`);
-        accBits.push(s.geocodePrecision === 'region' ? 'region-level (approx.)' : 'pinpoint');
-        if (typeof s.confidence === 'number') accBits.push(`${Math.round(s.confidence * 100)}% conf.`);
-        if (s.sources && s.sources.length) accBits.push('via ' + s.sources.map((c) => '@' + c).join(', '));
-        else if (s.channel) accBits.push('via @' + s.channel);
+        // Accuracy line: reports, precision, confidence, channel badges, UTC time.
+        const accParts = [];
+        if (s.reports > 1) accParts.push(esc(`${s.reports} reports`));
+        accParts.push(esc(s.geocodePrecision === 'region' ? 'region-level (approx.)' : 'pinpoint'));
+        if (typeof s.confidence === 'number') accParts.push(esc(`${Math.round(s.confidence * 100)}% conf.`));
+        const chans = s.sources && s.sources.length ? s.sources : (s.channel ? [s.channel] : []);
+        if (chans.length) accParts.push(chans.map(channelTag).join(' '));
         const utc = fmtUTC(s.timestamp);
-        if (utc) accBits.push(utc);
-        const accLine = `<div class="popup-acc">${esc(accBits.join(' · '))}</div>`;
+        if (utc) accParts.push(esc(utc));
+        const accLine = `<div class="popup-acc">${accParts.join(' · ')}</div>`;
 
         return `
           <div class="popup-title">${esc(s.location)}</div>
@@ -1136,6 +1201,76 @@
         return out;
       }
 
+      // Render filtered sightings onto the map layer. Separated from load() so
+      // the filter chips can re-render without re-fetching data.
+      function renderMap(sightings) {
+        layer.clearLayers();
+        const toShow = sightings.filter(matchesFilter);
+        const pts = [];
+
+        for (const s of toShow) {
+          const info = statusInfo(s);
+          const color = info.color;
+
+          // Translucent danger circle for region-wide danger / impacts.
+          if (info.level >= 3) {
+            L.circle([s.lat, s.lon], {
+              radius: 45000, color, fillColor: color,
+              fillOpacity: 0.045, weight: 1, opacity: 0.28, dashArray: '5 5',
+            }).addTo(layer);
+          } else if (s.geocodePrecision === 'region') {
+            // Approximate (region-centroid) placement → uncertainty ring.
+            L.circle([s.lat, s.lon], {
+              radius: 30000, color: '#6f93b4',
+              weight: 1, opacity: 0.25, fill: false, dashArray: '3 6',
+            }).addTo(layer);
+          }
+
+          const dest = confidentDest(s);
+          const bearing = resolveBearing(s);
+          if (dest) {
+            // Confirmed destination: solid dashed line to the target city.
+            const lineEnd = [dest.lat, dest.lon];
+            const lineBearing = bearingTo(s.lat, s.lon, dest.lat, dest.lon);
+            L.polyline([[s.lat, s.lon], lineEnd], {
+              color, weight: 2.5, opacity: 0.55, dashArray: '7 6',
+            }).addTo(layer);
+            L.marker(lineEnd, {
+              icon: arrowheadIcon(lineBearing, color), interactive: false, keyboard: false,
+            }).addTo(layer);
+            pts.push(lineEnd);
+          } else if (bearing !== null && info.warn) {
+            // Trajectory projection: faint dashed line showing probable heading
+            // when bearing is known but destination isn't in the curated list.
+            const projEnd = projectPoint(s.lat, s.lon, bearing, 200);
+            L.polyline([[s.lat, s.lon], projEnd], {
+              color, weight: 1.5, opacity: 0.25, dashArray: '3 10',
+            }).addTo(layer);
+            L.marker(projEnd, {
+              icon: arrowheadIcon(bearing, color),
+              interactive: false, keyboard: false, opacity: 0.35,
+            }).addTo(layer);
+          }
+
+          // Fade with age: full opacity for ≤10 min, easing to 0.5 by 60 min.
+          const ageMin = (Date.now() - (Date.parse(s.timestamp || '') || Date.now())) / 60000;
+          const opacity = ageMin <= 10 ? 1 : Math.max(0.5, 1 - (ageMin - 10) / 100);
+          L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity })
+            .bindPopup(popupHtml(s), { maxWidth: 280 })
+            .addTo(layer);
+          pts.push([s.lat, s.lon]);
+        }
+
+        // Auto-zoom to active threats on first load only — don't re-zoom on refresh.
+        if (!hasAutoZoomed && pts.length) {
+          const activePts = toShow.filter((s) => statusInfo(s).warn).map((s) => [s.lat, s.lon]);
+          map.fitBounds(activePts.length ? activePts : pts, { padding: [80, 80], maxZoom: 9 });
+          hasAutoZoomed = true;
+        }
+
+        renderWarnings(sightings); // always show all warnings regardless of active filter
+      }
+
       async function load() {
         try {
           const res = await fetch('data/sightings.json?t=' + Date.now());
@@ -1144,86 +1279,36 @@
 
           const inWindow = (data.sightings || []).filter((s) => {
             if (typeof s.lat !== 'number' || typeof s.lon !== 'number') return false;
-            if (isRecapText(s.postText) || isBlockedLoc(s.location)) return false; // recaps & junk
+            if (isRecapText(s.postText) || isBlockedLoc(s.location)) return false;
             const t = Date.parse(s.timestamp || '');
             return t && t >= cutoff;
           });
-          // Drop destination echoes, strip summary totals, clear regions that
-          // sounded the all-clear, filter low-confidence noise, then merge.
           const cleaned = supersedeWithAllClears(
             stripSummaryCounts(dropDestinationEchoes(inWindow))
           ).filter((s) => typeof s.confidence !== 'number' || s.confidence >= 0.3);
           const sightings = consolidateByLocation(cleaned);
           currentSightings = sightings;
 
-          layer.clearLayers();
-          const pts = [];
+          renderMap(sightings);
 
-          for (const s of sightings) {
-            const info = statusInfo(s);
-            const color = info.color;
-
-            // Translucent danger circle for region-wide danger / impacts.
-            if (info.level >= 3) {
-              L.circle([s.lat, s.lon], {
-                radius: 45000,
-                color,
-                fillColor: color,
-                fillOpacity: 0.045,
-                weight: 1,
-                opacity: 0.28,
-                dashArray: '5 5',
-              }).addTo(layer);
-            } else if (s.geocodePrecision === 'region') {
-              // Approximate (region-centroid) placement → show an uncertainty ring.
-              L.circle([s.lat, s.lon], {
-                radius: 30000,
-                color: '#6f93b4',
-                weight: 1,
-                opacity: 0.25,
-                fill: false,
-                dashArray: '3 6',
-              }).addTo(layer);
+          // Flash the status dot when new sightings arrive after the first load.
+          if (hasAutoZoomed && sightings.length > prevSightingCount) {
+            const dot = document.querySelector('.dot');
+            if (dot) {
+              dot.style.background = '#ffb03d';
+              setTimeout(() => { dot.style.background = ''; }, 3000);
             }
-
-            // Direction arrow ONLY when we know the actual destination — draw a
-            // line straight to it. No destination → no arrow (a bare compass
-            // heading isn't certain enough to point anywhere).
-            const dest = confidentDest(s);
-            if (dest) {
-              const lineEnd = [dest.lat, dest.lon];
-              const lineBearing = bearingTo(s.lat, s.lon, dest.lat, dest.lon);
-              L.polyline([[s.lat, s.lon], lineEnd], {
-                color, weight: 2.5, opacity: 0.55, dashArray: '7 6',
-              }).addTo(layer);
-              L.marker(lineEnd, {
-                icon: arrowheadIcon(lineBearing, color),
-                interactive: false,
-                keyboard: false,
-              }).addTo(layer);
-              pts.push(lineEnd);
-            }
-
-            // Fade with age so the freshest detections stand out (full for the
-            // first ~10 min, easing to 0.5 by the end of the 1-hour window).
-            const ageMin = (Date.now() - (Date.parse(s.timestamp || '') || Date.now())) / 60000;
-            const opacity = ageMin <= 10 ? 1 : Math.max(0.5, 1 - (ageMin - 10) / 100);
-            L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity })
-              .bindPopup(popupHtml(s), { maxWidth: 280 })
-              .addTo(layer);
-            pts.push([s.lat, s.lon]);
           }
+          prevSightingCount = sightings.length;
 
-          if (pts.length) map.fitBounds(pts, { padding: [60, 60], maxZoom: 9 });
-
-          renderWarnings(sightings);
-
+          const updatedAt = data.updatedAt ? new Date(data.updatedAt) : null;
+          const staleMin = updatedAt ? (Date.now() - updatedAt) / 60000 : 0;
           const when = data.updatedAt ? fmtTime(data.updatedAt) : '—';
+
           let statusText;
           if (!sightings.length) {
             statusText = `no sightings in last hour · updated ${when}`;
           } else {
-            // All-clears are resolved, not active — count them separately.
             const active = sightings.filter((s) => s.status !== 'all_clear');
             const danger = active.filter((s) => statusInfo(s).level >= 3).length;
             const inbound = active.filter((s) => statusInfo(s).level === 2).length;
@@ -1234,14 +1319,38 @@
             if (inbound) parts.push(`${inbound} inbound`);
             if (intercepted) parts.push(`${intercepted} intercepted`);
             if (cleared) parts.push(`${cleared} clear`);
-            parts.push(when);
+
+            // Threat-level badge in the title bar.
+            const lvl = danger >= 3 ? 'CRITICAL' : danger >= 1 ? 'HIGH' :
+              inbound >= 2 ? 'ELEVATED' : inbound >= 1 ? 'MODERATE' :
+              active.length > 0 ? 'LOW' : 'CLEAR';
+            const lvlColor = danger >= 3 ? '#ff2d2d' : danger >= 1 ? '#ff5c5c' :
+              inbound >= 2 ? '#ff7a3d' : inbound >= 1 ? '#ffb03d' :
+              active.length > 0 ? '#9ab4d0' : '#3fd87f';
+            const badge = document.getElementById('threatBadge');
+            if (badge) badge.innerHTML = `· <b style="color:${lvlColor}">${lvl}</b>`;
+
+            // Orange timestamp if data is getting stale (>10 min since last update).
+            const whenHtml = staleMin > 10
+              ? `<span style="color:#ff7a3d" title="Data may be stale">⚠ ${when}</span>`
+              : when;
+            parts.push(whenHtml);
             statusText = parts.join(' · ');
           }
-          document.getElementById('count').textContent = statusText;
+          document.getElementById('count').innerHTML = statusText;
         } catch {
           document.getElementById('count').textContent = 'failed to load';
         }
       }
+
+      // Wire up filter chips — re-render without re-fetching.
+      document.querySelectorAll('.filter-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          activeFilter = btn.dataset.filter;
+          document.querySelectorAll('.filter-chip').forEach((b) => b.classList.toggle('active', b === btn));
+          renderMap(currentSightings);
+        });
+      });
 
       load();
       setInterval(load, 2 * 60 * 1000);
