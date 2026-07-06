@@ -1,33 +1,6 @@
 {
   "sightings": [
     {
-      "id": "radarrussiia/80144:Свердловская область",
-      "location": "Свердловская область",
-      "locationRu": "Свердловская область",
-      "region": "Свердловская область",
-      "lat": 57.0747013,
-      "lon": 64.9824043,
-      "geocodeSource": "nominatim",
-      "geocodePrecision": "point",
-      "matchedName": "Свердловская область",
-      "threatType": "drone",
-      "count": null,
-      "heading": null,
-      "destination": null,
-      "destinationLat": null,
-      "destinationLon": null,
-      "bearing": null,
-      "status": "all_clear",
-      "confidence": 0.55,
-      "postId": 80144,
-      "postLink": "https://t.me/radarrussiia/80144",
-      "postText": "Свердловская область - отбой опасности по БПЛА.\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
-      "postDate": "2026-07-06T10:01:08+00:00",
-      "summary": "Drone activity (all_clear) at Свердловская область",
-      "timestamp": "2026-07-06T10:01:08+00:00",
-      "channel": "radarrussiia"
-    },
-    {
       "id": "lpr1_treugolnik/239421:Нижняя Тавда",
       "location": "Нижняя Тавда",
       "locationRu": "Нижняя Тавда",
@@ -353,9 +326,9 @@
     }
   ],
   "lastPostId": {
-    "radarrussiia": 80146,
+    "radarrussiia": 80147,
     "kpszsu": 67530,
     "lpr1_treugolnik": 239444
   },
-  "updatedAt": "2026-07-06T11:00:29.326Z"
+  "updatedAt": "2026-07-06T11:02:56.961Z"
 }
