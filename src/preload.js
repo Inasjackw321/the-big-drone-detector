@@ -14,6 +14,8 @@ contextBridge.exposeInMainWorld('ddx', {
   getSettings: () => ipcRenderer.invoke('settings:get'),
   updateSettings: (patch) => ipcRenderer.invoke('settings:update', patch),
   getSightings: () => ipcRenderer.invoke('sightings:all'),
+  getTracks: () => ipcRenderer.invoke('tracks:all'),
+  checkBackend: () => ipcRenderer.invoke('backend:check'),
   clearSightings: () => ipcRenderer.invoke('sightings:clear'),
   openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
 
@@ -23,6 +25,8 @@ contextBridge.exposeInMainWorld('ddx', {
       'pipeline:status',
       'pipeline:sighting',
       'pipeline:post',
+      'pipeline:backfill',
+      'pipeline:tracks',
       'pipeline:error',
       'pipeline:tick',
     ];

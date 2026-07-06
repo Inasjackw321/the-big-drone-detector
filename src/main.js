@@ -27,7 +27,12 @@ function buildPipeline() {
     overrides.llm = new DemoLlmClient();
   }
 
-  pipeline = new Pipeline({ config, store, overrides });
+  pipeline = new Pipeline({
+    config,
+    store,
+    dataDir: app.getPath('userData'),
+    overrides,
+  });
 
   const send = (channel, payload) => {
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -37,6 +42,8 @@ function buildPipeline() {
 
   pipeline.on('status', (s) => send('pipeline:status', s));
   pipeline.on('sighting', ({ sighting }) => send('pipeline:sighting', sighting));
+  pipeline.on('backfill', (p) => send('pipeline:backfill', p));
+  pipeline.on('tracks', (t) => send('pipeline:tracks', t));
   pipeline.on('post', (p) =>
     send('pipeline:post', {
       id: p.post.id,
@@ -58,15 +65,24 @@ function registerIpc() {
   ipcMain.handle('app:bootstrap', () => ({
     config: config.publicView(),
     sightings: store.all(),
+    tracks: pipeline ? pipeline.tracks() : [],
   }));
 
-  ipcMain.handle('monitor:start', () => {
-    if (!config.get('demo') && !config.get('openrouterApiKey')) {
-      return { ok: false, error: 'No OpenRouter API key set. Add one in Settings or enable Demo mode.' };
-    }
-    buildPipeline();
+  ipcMain.handle('monitor:start', async () => {
+    if (!pipeline) buildPipeline();
+    // Fail fast with an actionable message if the AI backend isn't ready
+    // (Ollama down, model not pulled, missing OpenRouter key…).
+    const check = await pipeline.checkBackend();
+    if (!check.ok) return { ok: false, error: check.error };
     pipeline.start();
     return { ok: true };
+  });
+
+  ipcMain.handle('tracks:all', () => (pipeline ? pipeline.tracks() : []));
+
+  ipcMain.handle('backend:check', async () => {
+    if (!pipeline) buildPipeline();
+    return pipeline.checkBackend();
   });
 
   ipcMain.handle('monitor:stop', () => {

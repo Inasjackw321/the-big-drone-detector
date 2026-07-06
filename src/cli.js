@@ -5,8 +5,9 @@
  * launching Electron, and for CI smoke tests in demo mode.
  *
  *   node src/cli.js --demo          # run one cycle on bundled sample posts
- *   node src/cli.js                 # run one cycle against the live channel
- *   node src/cli.js --watch         # keep polling on the configured interval
+ *   node src/cli.js                 # one poll cycle against the live channels
+ *   node src/cli.js --backfill      # deep-download the full history window
+ *   node src/cli.js --watch         # backfill, then keep polling
  */
 
 const path = require('path');
@@ -20,6 +21,7 @@ function parseArgs(argv) {
   return {
     demo: argv.includes('--demo'),
     watch: argv.includes('--watch'),
+    backfill: argv.includes('--backfill'),
   };
 }
 
@@ -42,9 +44,14 @@ async function main() {
     overrides.llm = new DemoLlmClient();
   }
 
-  const pipeline = new Pipeline({ config, store, overrides });
+  const pipeline = new Pipeline({ config, store, dataDir: userDataDir, overrides });
 
   pipeline.on('status', (s) => console.log(`[${s.state}] ${s.message}`));
+  pipeline.on('backfill', (p) => {
+    if (p.phase === 'fetch') console.log(`  … @${p.channel} page ${p.page} (${p.fetched} posts)`);
+    if (p.phase === 'fetched') console.log(`  ✓ @${p.channel}: ${p.total} new post(s) in window`);
+    if (p.phase === 'extract') console.log(`  → extracted ${p.done}/${p.total} (+${p.sightings} sightings)`);
+  });
   pipeline.on('sighting', ({ sighting }) =>
     console.log(
       `  📍 ${sighting.location} (${sighting.region || '—'}) ` +
@@ -54,24 +61,30 @@ async function main() {
   );
   pipeline.on('error', (err) => console.error('  ! ' + err.message));
 
-  if (!config.get('demo') && !config.get('openrouterApiKey')) {
-    console.error(
-      'No OPENROUTER_API_KEY set. Use --demo for an offline run, or add a key to .env.'
-    );
+  const check = await pipeline.checkBackend();
+  if (!check.ok) {
+    console.error(check.error + ' (or use --demo for an offline run)');
     process.exit(1);
   }
+  console.log(`AI backend: ${check.backend}`);
 
   if (args.watch) {
     console.log(
-      `Watching @${config.get('telegramChannel')} every ${config.get(
-        'pollIntervalSeconds'
-      )}s. Ctrl+C to stop.`
+      `Watching ${config.channels().map((c) => '@' + c).join(', ')} every ` +
+        `${config.get('pollIntervalSeconds')}s. Ctrl+C to stop.`
     );
     pipeline.start();
     process.on('SIGINT', () => {
       pipeline.stop();
       process.exit(0);
     });
+  } else if (args.backfill) {
+    const res = await pipeline.backfill();
+    const tracks = pipeline.tracks();
+    console.log(
+      `\nBackfill done. posts=${res.posts} sightings=${res.sightings} ` +
+        `total=${store.all().length} tracks=${tracks.length}`
+    );
   } else {
     const res = await pipeline.pollOnce();
     console.log(

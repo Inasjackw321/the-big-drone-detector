@@ -19,7 +19,7 @@ function tmpDir(name) {
 
 function demoConfig(dir) {
   const cfg = new Config({ rootDir: path.join(__dirname, '..'), userDataDir: dir });
-  cfg.update({ demo: true, telegramChannel: 'radarrussiia' });
+  cfg.update({ demo: true, telegramChannels: 'radarrussiia' });
   return cfg;
 }
 
@@ -95,6 +95,61 @@ test('pipeline emits an error event when extraction fails', async () => {
   assert.ok(errors.length > 0);
   assert.match(errors[0].message, /boom/);
   assert.equal(store.all().length, 0);
+});
+
+test('backfill pages back through history and builds tracks', async () => {
+  const dir = tmpDir('backfill');
+  const config = new Config({ rootDir: path.join(__dirname, '..'), userDataDir: dir });
+  config.update({ demo: false, telegramChannels: 'radarrussiia', backfillHours: 6, backfillMaxPages: 5, extractConcurrency: 3 });
+
+  // Two "pages" of history: newest page (ids 200-203) then older (ids 100-103),
+  // each a drone stepping east so they chain into a track.
+  const now = Date.now();
+  const iso = (minAgo) => new Date(now - minAgo * 60000).toISOString();
+  const mk = (id, minAgo, lon) => ({
+    id: `radarrussiia/${id}`, postId: id, channel: 'radarrussiia',
+    link: `https://t.me/radarrussiia/${id}`, date: iso(minAgo),
+    text: `Точка ${id}. Тульская область. Фиксация БПЛА, курс на восток.`, lon,
+  });
+  const page2 = [mk(200, 40, 38), mk(201, 30, 39), mk(202, 20, 40), mk(203, 10, 41)]; // newest
+  const page1 = [mk(100, 120, 34), mk(101, 110, 35), mk(102, 100, 36), mk(103, 90, 37)]; // older
+  const fetchPosts = async ({ beforeId }) => {
+    if (!beforeId) return page2.slice();
+    if (beforeId <= 200) return page1.slice(); // older page when paging before 200
+    return [];
+  };
+
+  // Stub LLM: place each post at a stepped coordinate so tracks correlate.
+  const llm = {
+    async extractSightings(post) {
+      return {
+        isRelevant: true, summary: 's',
+        sightings: [{ location: 'Tula', locationRu: 'Тула', region: 'Tula Oblast',
+          lat: 54.19, lon: post.lon, threatType: 'drone', count: null,
+          heading: 'east', destination: null, status: 'approaching', confidence: 0.9 }],
+      };
+    },
+  };
+  // Geocoder stub returns the coords the LLM already provided (offline).
+  const geocoder = { resolve: async (s) => (typeof s.lat === 'number' ? { lat: s.lat, lon: s.lon, source: 'stub', precision: 'point', matchedName: s.location, region: s.region } : null), dumpCache: () => ({}) };
+
+  const store = new SightingStore({ filePath: path.join(dir, 's.json') });
+  const pipeline = new Pipeline({ config, store, dataDir: dir, overrides: { fetchPosts, llm, geocoder } });
+
+  const progress = [];
+  pipeline.on('backfill', (p) => progress.push(p.phase));
+
+  const res = await pipeline.backfill();
+  // All 8 posts across both pages should have been processed.
+  assert.equal(res.posts, 8, `processed ${res.posts} posts`);
+  assert.equal(store.all().length, 8);
+  assert.ok(progress.includes('fetched'));
+  assert.ok(progress.includes('done'));
+
+  // The stepped points must correlate into at least one track.
+  const tracks = pipeline.tracks();
+  assert.ok(tracks.length >= 1, `expected a track, got ${tracks.length}`);
+  assert.ok(tracks[0].points.length >= 3);
 });
 
 test('store persists and reloads sightings and lastPostId', async () => {
