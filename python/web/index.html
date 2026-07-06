@@ -41,6 +41,9 @@
       .clock .cz { font-size: 10.5px; color: #7fa3c4; letter-spacing: 3px; margin-top: 3px; font-weight: 600; }
       .clock.replay .ct { color: #ffd9a0; }
       .clock.replay .cz { color: #ffb03d; }
+      /* while the backfill bar is showing, drop the clock + warnings below it */
+      body.backfilling .clock { top: 98px; transition: top 0.2s; }
+      body.backfilling .warn-panel { top: 196px; }
 
       .warn-panel { position: absolute; top: 156px; left: 16px; z-index: 1000; width: 248px; max-height: 44vh; display: none; overflow: hidden; background: linear-gradient(180deg, rgba(16,30,46,0.94), rgba(11,22,36,0.92)); border: 1px solid #2d4a6a; border-radius: 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); backdrop-filter: blur(8px); color: #cde0f5; }
       .warn-panel.danger { border-color: #ff3b3b; box-shadow: 0 0 0 1px #ff3b3b,0 6px 20px rgba(0,0,0,0.55); }
@@ -91,7 +94,11 @@
       .popup-confirm { color: #3fd87f; font-size: 11.5px; font-weight: 600; margin-bottom: 3px; }
       .popup-dest { color: #ffd27f; font-size: 12px; margin-bottom: 3px; }
       .popup-text { font-size: 12px; max-height: 75px; overflow-y: auto; white-space: pre-wrap; border-top: 1px solid #2d4a6a; padding-top: 6px; margin-top: 6px; color: #c0d8ee; }
+      .popup-tr { font-size: 12px; max-height: 90px; overflow-y: auto; white-space: pre-wrap; border-top: 1px solid #2d4a6a; padding-top: 6px; margin-top: 6px; color: #dbeafe; }
+      .popup-trlink { display: inline-block; margin-top: 5px; color: #7fd0ff; font-size: 11.5px; font-weight: 600; text-decoration: none; cursor: pointer; }
+      .popup-trlink:hover { text-decoration: underline; }
       .popup-link a { color: #5aafff; font-size: 12px; text-decoration: none; }
+      #layerBar #translateChip.active { background: #1d3550; border-color: #5aafff; color: #dbeafe; }
 
       .threat-icon, .arrow-icon { background: none; border: none; }
       .threat-icon svg { overflow: visible; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
@@ -154,6 +161,7 @@
         <button class="chip" data-layer="lines">➤ Vectors</button>
         <button class="chip" data-layer="labels">Aa Labels</button>
         <button class="chip" data-layer="clock">🕐 Clock</button>
+        <button class="chip" id="translateChip" title="Auto-translate posts to English">🌐 Translate</button>
       </div>
     </div>
 

@@ -42,6 +42,10 @@ On start it:
 - **Persistent cache** (`state.json` in your OS app-data folder): sightings,
   per-channel cursors and resolved coordinates are saved, so repeat launches
   paint instantly and **only new posts are extracted** — no re-doing history.
+- **Relevance pre-filter** (`DDX_LLM_PREFILTER`, on by default): posts with no
+  aerial-threat keyword are never sightings, so the model is skipped for them —
+  on a busy channel full of unrelated chatter this is the single biggest
+  speedup.
 - **Parallel** channel fetch + extraction (`DDX_CONCURRENCY`, default 3).
 - **Newest-first** ordering with incremental map writes.
 - The slower verification pass runs only on **recent** posts during bulk
@@ -59,6 +63,10 @@ Ollama instead).
 - **Filters**: All / Danger / Inbound / Cleared / Drones / Missiles.
 - **Layers**: Tracks / Zones / Vectors / Labels / Clock (remembered between
   sessions).
+- **🌐 Translate**: click *Translate* in any post popup to render the
+  Russian/Ukrainian text in English (translated on-device by the same Ollama
+  model, cached). Toggle the **🌐 Translate** chip to auto-translate every
+  popup you open.
 - Click a warning to fly to it; hover a track for its route, distance and time
   span; click a marker for the source post.
 
@@ -82,6 +90,7 @@ Ollama instead).
 | `DDX_VERIFY` | `1` | second accuracy-checking pass |
 | `DDX_VERIFY_RECENT_HOURS` | `6` | during backfill, verify only posts newer than this |
 | `DDX_CONCURRENCY` | `3` | parallel extractions |
+| `DDX_LLM_PREFILTER` | `1` | skip the model for posts with no threat keyword (faster) |
 | `TELEGRAM_CHANNELS` | `radarrussiia,kpszsu,lpr1_treugolnik` | channels |
 | `DDX_BACKFILL_HOURS` | `48` | history downloaded on startup / timeline length |
 | `POLL_INTERVAL_SECONDS` | `120` | how often to check for new posts |

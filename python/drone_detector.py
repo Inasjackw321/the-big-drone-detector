@@ -91,6 +91,10 @@ CONFIG = {
     # Concurrent extractions during backfill — overlaps Telegram fetch, geocode
     # and LLM calls so a busy history loads several times faster.
     "concurrency": max(1, int(env("DDX_CONCURRENCY", "3"))),
+    # Skip the LLM entirely for posts that mention no aerial-threat keyword —
+    # they are never sightings, so this cuts model calls (and load time)
+    # dramatically on busy channels full of unrelated chatter.
+    "llm_prefilter": env("DDX_LLM_PREFILTER", "1") not in ("0", "false", "no"),
     # During bulk backfill, only run the (slower) verification pass on posts
     # newer than this many hours — keeps current threats accurate while old
     # history loads fast. Live polling always verifies.
@@ -379,6 +383,11 @@ def fetch_channel(channel, before_id=None, timeout=15):
 # --------------------------------------------------------------------------- #
 DRONE_RE = re.compile(r"бпла|дрон|беспилотн|безпілотн|шахед|шахід|мопед|fpv", re.I)
 MISSILE_RE = re.compile(r"ракет|крылат|крилат|баллист|балістич", re.I)
+# Any aerial-threat signal (threat type OR a threat status word). A post with
+# none of these can't be a mappable sighting, so we skip the LLM for it.
+THREAT_ANY_RE = re.compile(
+    r"бпла|дрон|беспилотн|безпілотн|шахед|шахід|мопед|fpv|ракет|крылат|крилат|баллист|балістич|"
+    r"отбой|відбій|тревог|тривог|опасн|загроз|угроз|прил[её]т|приліт|вибух|влучан|пво|ппо", re.I)
 REGION_RE = re.compile(r"(област|край|краю|республик|округ|\bА[РP]\b)", re.I)
 FOOTER_RE = re.compile(r"(радар по всей|обход белых|@\w|https?:|t\.me|подписат|бот[аы]?\b)", re.I)
 PHRASE_RE = re.compile(r"(бпла|дрон|беспилотн|безпілотн|шахед|fpv|опасн|сбит|збит|пво|ппо|отбой|"
@@ -545,6 +554,11 @@ Rules:
 - Only fill lat/lon when genuinely confident; otherwise null.
 - Never invent locations or directions not in the post. Output JSON only."""
 
+TRANSLATE_PROMPT = ("You are a professional translator. Translate the user's message (written in "
+                    "Russian or Ukrainian) into clear, natural English. Preserve place names as their "
+                    "common English spellings. Output ONLY the English translation — no notes, no quotes, "
+                    "no original text.")
+
 VERIFY_PROMPT = """You are a strict OSINT fact-checker. You are given a Telegram post (Russian or Ukrainian) and a JSON extraction from it.
 Re-read the POST carefully and output a CORRECTED extraction with the same schema:
 - DELETE any sighting whose location is not actually in the post (hallucinations), or that is a sea/whole country, or that merely duplicates a DESTINATION a threat is heading toward.
@@ -660,30 +674,43 @@ class OllamaClient:
         self.model = CONFIG["ollama_model"]
         self.verify = CONFIG["verify"]
 
-    def _chat(self, messages, timeout):
-        body = json.dumps({"model": self.model, "messages": messages, "stream": False,
-                           "format": SCHEMA, "options": {"temperature": 0, "num_ctx": 4096}}).encode()
+    def _chat(self, messages, timeout, fmt=SCHEMA):
+        payload = {"model": self.model, "messages": messages, "stream": False,
+                   "options": {"temperature": 0, "num_ctx": 4096}}
+        if fmt is not None:
+            payload["format"] = fmt
+        body = json.dumps(payload).encode()
         req = urllib.request.Request(self.url + "/api/chat", data=body,
                                      headers={"Content-Type": "application/json"})
         with urllib.request.urlopen(req, timeout=timeout) as r:
             data = json.load(r)
-        content = (data.get("message") or {}).get("content", "")
-        parsed = extract_json_object(content)
+        return (data.get("message") or {}).get("content", "")
+
+    def _chat_json(self, messages, timeout):
+        parsed = extract_json_object(self._chat(messages, timeout))
         if parsed is None:
             raise ValueError("ollama returned no parseable JSON")
         return parsed
+
+    def translate(self, text, timeout=60):
+        """Translate a Russian/Ukrainian post to English (free text)."""
+        out = self._chat(
+            [{"role": "system", "content": TRANSLATE_PROMPT},
+             {"role": "user", "content": text}],
+            timeout, fmt=None)
+        return (out or "").strip()
 
     def extract(self, post, verify=None):
         do_verify = self.verify if verify is None else verify
         user = (f"Post date: {post.get('date') or 'unknown'}\nPost link: {post.get('link') or 'unknown'}"
                 f"\n\nPost text:\n\"\"\"\n{post.get('text') or ''}\n\"\"\"")
-        first = normalize_extraction(self._chat(
+        first = normalize_extraction(self._chat_json(
             [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}],
             CONFIG["llm_timeout"]))
         if not do_verify or not first["isRelevant"] or not first["sightings"]:
             return first
         try:
-            return normalize_extraction(self._chat(
+            return normalize_extraction(self._chat_json(
                 [{"role": "system", "content": VERIFY_PROMPT},
                  {"role": "user", "content": user + "\n\nFirst-pass extraction to check:\n"
                   + json.dumps(denormalize(first), ensure_ascii=False)}], CONFIG["llm_timeout"]))
@@ -896,6 +923,12 @@ def build_tracks(sightings):
 # --------------------------------------------------------------------------- #
 # Store + pipeline
 # --------------------------------------------------------------------------- #
+# Set in main(); lets the HTTP handler reach the pipeline for /api/translate.
+PIPELINE = None
+_translate_cache = {}
+_translate_lock = threading.Lock()
+
+
 class Store:
     def __init__(self):
         self.by_id = {}
@@ -945,9 +978,14 @@ class Pipeline:
         self.updated_at = None
 
     def process_post(self, post, verify=None):
-        if is_interception_recap(post.get("text", "")):
+        text = post.get("text", "")
+        # Fast path: a post with no aerial-threat keyword at all is never a
+        # sighting — skip the (expensive) model call entirely.
+        if CONFIG["llm_prefilter"] and not THREAT_ANY_RE.search(text):
             return []
-        heur = analyze_post(post.get("text", ""))
+        if is_interception_recap(text):
+            return []
+        heur = analyze_post(text)
         extraction = None
         if self.use_llm:
             try:
@@ -1136,6 +1174,25 @@ class Pipeline:
         except Exception as e:
             log(f"persist failed: {e}")
 
+    def translate(self, text):
+        """English translation of a post (cached). Falls back to the original."""
+        text = (text or "").strip()
+        if not text:
+            return ""
+        with _translate_lock:
+            if text in _translate_cache:
+                return _translate_cache[text]
+        if not self.use_llm:
+            return text
+        try:
+            out = self.llm.translate(text) or text
+        except Exception as e:
+            log(f"translate failed: {e}")
+            out = text
+        with _translate_lock:
+            _translate_cache[text] = out
+        return out
+
     def restore(self):
         """Load the persisted cache; returns the number of sightings restored."""
         try:
@@ -1251,6 +1308,30 @@ class Handler(SimpleHTTPRequestHandler):
         self.send_header("Cache-Control", "no-store")
         super().end_headers()
 
+    def _json(self, obj, status=200):
+        body = json.dumps(obj, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_POST(self):
+        if self.path.split("?")[0] == "/api/translate":
+            try:
+                length = int(self.headers.get("Content-Length", 0))
+                data = json.loads(self.rfile.read(length) or b"{}")
+            except Exception:
+                data = {}
+            text = (data.get("text") or "")[:2000]
+            try:
+                out = PIPELINE.translate(text) if PIPELINE else text
+                self._json({"translation": out})
+            except Exception as e:
+                self._json({"translation": text, "error": str(e)}, status=200)
+            return
+        self.send_error(404)
+
 
 def serve():
     """Bind the requested port, or fall back to any free port if it's taken."""
@@ -1280,6 +1361,8 @@ def main():
     geocoder = Geocoder()
     llm = OllamaClient()
     pipeline = Pipeline(store, geocoder, llm)
+    global PIPELINE
+    PIPELINE = pipeline  # expose to the /api/translate handler
 
     httpd, port = serve()
     url = f"http://127.0.0.1:{port}/"

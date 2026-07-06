@@ -26,6 +26,7 @@ const state = {
   sightings: [], tracks: [], filter: 'all', hasAutoZoomed: false,
   layers: (() => { const d = { tracks: true, zones: true, lines: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
   timeline: { live: true, asOf: Date.now(), playing: false, speed: 300 },
+  autoTranslate: (() => { try { return localStorage.getItem('ddx-translate') === '1'; } catch { return false; } })(),
 };
 
 // ---- geo helpers ----
@@ -105,7 +106,51 @@ function popupHtml(s) {
   const chans = s.sources && s.sources.length ? s.sources : (s.channel ? [s.channel] : []);
   if (chans.length) acc.push(chans.map(channelTag).join(' '));
   const utc = fmtUTC(s.timestamp); if (utc) acc.push(esc(utc));
-  return `<div class="popup-title">${esc(s.location)}</div>${statusLine}${confirm}<div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>${going}<div class="popup-acc">${acc.join(' · ')}</div>${s.postText ? `<div class="popup-text">${esc(s.postText)}</div>` : ''}${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}`;
+  const post = s.postText ? `<div class="popup-text" data-orig>${esc(s.postText)}</div>` +
+    `<div class="popup-tr" style="display:none"></div>` +
+    `<a class="popup-trlink" href="#">🌐 Translate</a>` : '';
+  return `<div class="popup-title">${esc(s.location)}</div>${statusLine}${confirm}<div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>${going}<div class="popup-acc">${acc.join(' · ')}</div>${post}${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}`;
+}
+
+// ---- translation (on-demand, cached; server calls Ollama translategemma) ----
+const _trCache = new Map();
+async function translateText(text) {
+  if (_trCache.has(text)) return _trCache.get(text);
+  try {
+    const r = await fetch('api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    const d = await r.json();
+    const t = (d.translation || text).trim();
+    _trCache.set(text, t);
+    return t;
+  } catch { return text; }
+}
+// Wire the Translate link (and auto-run it when the toggle is on) each time a popup opens.
+function wirePopupTranslate(popup) {
+  const node = popup && popup._contentNode;
+  const s = popup && popup._source && popup._source._s;
+  if (!node || !s || !s.postText) return;
+  const link = node.querySelector('.popup-trlink');
+  const trDiv = node.querySelector('.popup-tr');
+  const orig = node.querySelector('[data-orig]');
+  if (!link || !trDiv || !orig) return;
+  const showTranslation = async () => {
+    if (!trDiv.textContent) {
+      link.textContent = '🌐 Translating…';
+      trDiv.textContent = await translateText(s.postText);
+    }
+    trDiv.style.display = 'block';
+    orig.style.display = 'none';
+    link.textContent = '🌐 Show original';
+    link.dataset.shown = '1';
+  };
+  const showOriginal = () => {
+    trDiv.style.display = 'none';
+    orig.style.display = 'block';
+    link.textContent = '🌐 Translate';
+    link.dataset.shown = '';
+  };
+  link.onclick = (e) => { e.preventDefault(); (link.dataset.shown === '1') ? showOriginal() : showTranslation(); };
+  if (state.autoTranslate) showTranslation();
 }
 
 // ---- map ----
@@ -113,7 +158,8 @@ const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
 const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), routeLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
 const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, lines: routeLayer, labels: labelsLayer };
-function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; document.querySelectorAll('#layerBar .chip').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
+function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
+map.on('popupopen', (e) => wirePopupTranslate(e.popup));
 
 function currentAsOf() { return state.timeline.live ? Date.now() : state.timeline.asOf; }
 function renderAll() { const asOf = currentAsOf(); const sightings = sightingsAsOf(asOf); renderMarkers(sightings); renderTracks(tracksAsOf(asOf)); renderWarnings(sightings); updateHeader(sightings); updateClock(); }
@@ -129,7 +175,8 @@ function renderMarkers(sightings) {
     if (dest) { const lb = bearingTo(s.lat, s.lon, dest.lat, dest.lon); L.polyline([[s.lat, s.lon], [dest.lat, dest.lon]], { color, weight: 2.5, opacity: 0.55, dashArray: '7 6' }).addTo(routeLayer); L.marker([dest.lat, dest.lon], { icon: arrowheadIcon(lb, color), interactive: false, keyboard: false }).addTo(routeLayer); pts.push([dest.lat, dest.lon]); }
     else if (bearing !== null && info.warn) { const pe = projectPoint(s.lat, s.lon, bearing, 200); L.polyline([[s.lat, s.lon], pe], { color, weight: 1.5, opacity: 0.25, dashArray: '3 10' }).addTo(routeLayer); L.marker(pe, { icon: arrowheadIcon(bearing, color), interactive: false, keyboard: false, opacity: 0.35 }).addTo(routeLayer); }
     const ageMin = (asOf - (Date.parse(s.timestamp || '') || asOf)) / 60000, opacity = ageMin <= 10 ? 1 : Math.max(0.5, 1 - (ageMin - 10) / 100);
-    L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity }).bindPopup(popupHtml(s), { maxWidth: 280 }).addTo(markersLayer);
+    const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
+    mk._s = s; // let the popup-open handler reach this sighting for translation
     pts.push([s.lat, s.lon]);
     L.tooltip({ permanent: true, direction: 'bottom', className: 'place-label', offset: [0, 14], interactive: false }).setContent(`<span style="color:${color}">${esc(s.location)}</span>`).setLatLng([s.lat, s.lon]).addTo(labelsLayer);
   }
@@ -216,14 +263,35 @@ document.getElementById('tlSpeed').addEventListener('change', (e) => { state.tim
 
 // ---- chips ----
 document.querySelectorAll('#filterBar .chip').forEach((btn) => btn.addEventListener('click', () => { state.filter = btn.dataset.filter; document.querySelectorAll('#filterBar .chip').forEach((b) => b.classList.toggle('active', b === btn)); renderAll(); }));
-document.querySelectorAll('#layerBar .chip').forEach((btn) => btn.addEventListener('click', () => { const k = btn.dataset.layer; state.layers[k] = !state.layers[k]; try { localStorage.setItem('ddx-layers', JSON.stringify(state.layers)); } catch {} applyLayerToggles(); }));
+document.querySelectorAll('#layerBar .chip[data-layer]').forEach((btn) => btn.addEventListener('click', () => { const k = btn.dataset.layer; state.layers[k] = !state.layers[k]; try { localStorage.setItem('ddx-layers', JSON.stringify(state.layers)); } catch {} applyLayerToggles(); }));
+
+// Auto-translate toggle — translate open/opening popups to English.
+const translateChip = document.getElementById('translateChip');
+if (translateChip) {
+  translateChip.classList.toggle('active', state.autoTranslate);
+  translateChip.addEventListener('click', () => {
+    state.autoTranslate = !state.autoTranslate;
+    try { localStorage.setItem('ddx-translate', state.autoTranslate ? '1' : '0'); } catch {}
+    translateChip.classList.toggle('active', state.autoTranslate);
+    // Apply immediately to any popup that's already open.
+    if (state.autoTranslate && map._popup) wirePopupTranslate(map._popup);
+  });
+}
 
 // ---- status + data polling ----
 function setStatus(st, msg) { const dot = document.getElementById('statusDot'), text = document.getElementById('statusText'); text.textContent = msg || ''; dot.className = 'dot'; if (st === 'error') dot.classList.add('error'); else if (['polling','processing','backfill','starting'].includes(st)) dot.classList.add('busy'); }
 function showBackfill(s) {
   const bar = document.getElementById('backfillBar'), label = document.getElementById('backfillLabel'), fill = document.getElementById('backfillFill');
-  if (s.state === 'backfill') { bar.style.display = 'flex'; label.textContent = s.message; const pct = s.total ? Math.round((s.done / s.total) * 100) : 8; fill.style.width = Math.max(8, s.phase === 'extract' ? pct : 10) + '%'; }
-  else if (s.phase === 'done' || s.state === 'idle' || s.state === 'polling') { fill.style.width = '100%'; setTimeout(() => { bar.style.display = 'none'; }, 1500); }
+  if (s.state === 'backfill') {
+    bar.style.display = 'flex';
+    document.body.classList.add('backfilling');
+    label.textContent = s.message;
+    const pct = s.total ? Math.round((s.done / s.total) * 100) : 8;
+    fill.style.width = Math.max(8, s.phase === 'extract' ? pct : 10) + '%';
+  } else if (s.phase === 'done' || s.state === 'idle' || s.state === 'polling') {
+    fill.style.width = '100%';
+    setTimeout(() => { bar.style.display = 'none'; document.body.classList.remove('backfilling'); }, 1500);
+  }
 }
 async function fetchJson(url) { const r = await fetch(url + '?t=' + Date.now()); if (!r.ok) throw new Error(r.status); return r.json(); }
 async function refreshData() {
