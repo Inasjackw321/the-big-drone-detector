@@ -1,0 +1,3 @@
+# The app runs on the Python standard library alone (browser fallback).
+# For the native desktop window, install pywebview:
+pywebview>=5.0

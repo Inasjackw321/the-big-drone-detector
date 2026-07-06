@@ -160,12 +160,20 @@ function renderWarnings(sightings) {
   for (const g of arr) { const ago = g.latest ? fmtTime(new Date(g.latest).toISOString()) : ''; const row = document.createElement('div'); row.className = 'warn-item'; row.innerHTML = `<span class="warn-sev" style="background:${g.color}"></span><span class="warn-body"><span class="warn-region">${esc(g.key)}</span><span class="warn-meta">${esc(g.label)} · ${g.spots} spot${g.spots > 1 ? 's' : ''}${ago ? ' · ' + ago : ''}</span></span>`; row.addEventListener('click', () => { if (typeof g.latlng[0] === 'number') map.flyTo(g.latlng, Math.max(map.getZoom(), 8), { duration: 0.6 }); }); list.appendChild(row); }
 }
 function updateHeader(sightings) {
-  const badge = document.getElementById('threatBadge');
   const active = sightings.filter((s) => s.status !== 'all_clear');
-  const danger = active.filter((s) => statusInfo(s).level >= 3).length, inbound = active.filter((s) => statusInfo(s).level === 2).length;
-  const lvl = danger >= 3 ? 'CRITICAL' : danger >= 1 ? 'HIGH' : inbound >= 2 ? 'ELEVATED' : inbound >= 1 ? 'MODERATE' : active.length ? 'LOW' : 'CLEAR';
-  const col = danger >= 3 ? '#ff2d2d' : danger >= 1 ? '#ff5c5c' : inbound >= 2 ? '#ff7a3d' : inbound >= 1 ? '#ffb03d' : active.length ? '#9ab4d0' : '#3fd87f';
-  badge.innerHTML = `· <b style="color:${col}">${lvl}</b> · ${active.length} active`;
+  const danger = active.filter((s) => statusInfo(s).level >= 3).length;
+  const inbound = active.filter((s) => s.status === 'approaching').length;
+  const overhead = active.filter((s) => s.status === 'overhead').length;
+  const intercepted = active.filter((s) => s.status === 'shot_down').length;
+  const cleared = sightings.filter((s) => s.status === 'all_clear').length;
+  const lvl = danger >= 3 ? 'CRITICAL' : danger >= 1 ? 'HIGH' : (inbound + overhead) >= 2 ? 'ELEVATED' : (inbound + overhead) >= 1 ? 'MODERATE' : active.length ? 'LOW' : 'CLEAR';
+  const col = danger >= 3 ? '#ff2d2d' : danger >= 1 ? '#ff5c5c' : (inbound + overhead) >= 2 ? '#ff7a3d' : (inbound + overhead) >= 1 ? '#ffb03d' : active.length ? '#9ab4d0' : '#3fd87f';
+  const pill = (color, n, title) => n ? `<span class="pill" title="${title}"><span class="pdot" style="background:${color}"></span>${n}</span>` : '';
+  const lvlPill = `<span class="pill lvl" style="color:${col};border-color:${col}55;background:${col}18">${lvl}</span>`;
+  document.getElementById('stats').innerHTML = lvlPill +
+    pill('#ff3b3b', danger, 'Danger') + pill('#ff7a3d', inbound, 'Inbound') +
+    pill('#ffb03d', overhead, 'Overhead') + pill('#4fb6ff', intercepted, 'Intercepted') +
+    pill('#3fd87f', cleared, 'All clear');
 }
 function updateClock() {
   const d = new Date(currentAsOf()), p = (n) => String(n).padStart(2, '0');
@@ -180,13 +188,20 @@ setInterval(() => { if (state.timeline.live) updateClock(); }, 1000);
 function historyBounds() { const times = state.sightings.map((s) => Date.parse(s.timestamp || '') || 0).filter(Boolean); const now = Date.now(); const min = times.length ? Math.min(...times) : now - 48 * 3600 * 1000; return { min, max: now }; }
 function sliderToTime(v) { const { min, max } = historyBounds(); return min + (max - min) * (v / 1000); }
 function timeToSlider(t) { const { min, max } = historyBounds(); return max <= min ? 1000 : Math.round(((t - min) / (max - min)) * 1000); }
+function paintSlider(v) {
+  const pct = Math.max(0, Math.min(100, v / 10));
+  const el = document.getElementById('tlSlider');
+  el.style.background = `linear-gradient(90deg, #5ad1ff 0%, #5ad1ff ${pct}%, #3a6f92 ${pct}%, #142a40 ${pct}%)`;
+}
 function setTimelineTime(asOf, fromSlider) {
   const { max } = historyBounds();
   state.timeline.live = asOf >= max - 1000; state.timeline.asOf = Math.min(asOf, max);
   const tlTime = document.getElementById('tlTime');
   if (state.timeline.live) { tlTime.textContent = 'LIVE'; tlTime.classList.remove('replay'); } else { tlTime.textContent = fmtUTC(state.timeline.asOf); tlTime.classList.add('replay'); }
   document.getElementById('tlLive').classList.toggle('active', state.timeline.live);
-  if (!fromSlider) document.getElementById('tlSlider').value = timeToSlider(state.timeline.asOf);
+  const sliderVal = fromSlider ? +document.getElementById('tlSlider').value : timeToSlider(state.timeline.asOf);
+  if (!fromSlider) document.getElementById('tlSlider').value = sliderVal;
+  paintSlider(sliderVal);
   renderAll();
 }
 function goLive() { stopReplay(); state.timeline.live = true; document.getElementById('tlSlider').value = 1000; setTimelineTime(Date.now()); }

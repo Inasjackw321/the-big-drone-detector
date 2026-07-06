@@ -11,15 +11,17 @@ Run it:
 
     python drone_detector.py
 
-It downloads all available history on startup (so the map opens full of flight
-lines), starts a local web server, opens your browser, and keeps polling for
-new posts until you press Ctrl+C. No API keys, no cloud — just Ollama.
+It opens in a native desktop window (via pywebview, if installed), downloads
+new history on startup, correlates it into flight tracks, and keeps polling
+until you close the window / press Ctrl+C. Results are cached on disk, so the
+map repaints instantly on the next launch and only NEW posts are extracted.
 
 Requirements: Python 3.8+, and Ollama running with the model pulled:
     ollama pull translategemma:12b
     ollama serve
 
-Standard library only — no pip install needed.
+For the native window (recommended):  pip install pywebview
+Without it, the app falls back to opening your browser.
 """
 
 import json
@@ -28,11 +30,13 @@ import os
 import re
 import sys
 import time
+import socket
 import threading
 import webbrowser
 import urllib.request
 import urllib.parse
 import urllib.error
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 
@@ -51,6 +55,25 @@ def env(name, default):
     return v if v not in (None, "") else default
 
 
+def app_data_dir():
+    """Platform-appropriate writable dir for the persistent cache."""
+    override = os.environ.get("DDX_DATA_DIR")
+    if override:
+        d = override
+    elif sys.platform.startswith("win"):
+        d = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "TheBigDroneDetector")
+    elif sys.platform == "darwin":
+        d = os.path.expanduser("~/Library/Application Support/TheBigDroneDetector")
+    else:
+        d = os.path.join(os.environ.get("XDG_DATA_HOME", os.path.expanduser("~/.local/share")),
+                         "the-big-drone-detector")
+    os.makedirs(d, exist_ok=True)
+    return d
+
+
+STATE_FILE = os.path.join(app_data_dir(), "state.json")
+
+
 CONFIG = {
     "ollama_url": env("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
     "ollama_model": env("OLLAMA_MODEL", "translategemma:12b"),
@@ -65,6 +88,15 @@ CONFIG = {
     "port": int(env("DDX_PORT", "8700")),
     "enable_nominatim": env("DDX_NOMINATIM", "1") not in ("0", "false", "no"),
     "llm_timeout": int(env("DDX_LLM_TIMEOUT", "120")),
+    # Concurrent extractions during backfill — overlaps Telegram fetch, geocode
+    # and LLM calls so a busy history loads several times faster.
+    "concurrency": max(1, int(env("DDX_CONCURRENCY", "3"))),
+    # During bulk backfill, only run the (slower) verification pass on posts
+    # newer than this many hours — keeps current threats accurate while old
+    # history loads fast. Live polling always verifies.
+    "verify_recent_hours": float(env("DDX_VERIFY_RECENT_HOURS", "6")),
+    # Open a native desktop window (pywebview) instead of the browser.
+    "native": env("DDX_NATIVE", "1") not in ("0", "false", "no"),
     # If Ollama can't be reached, fall back to the deterministic parser so the
     # app still works (less accurate, but never blank).
     "allow_heuristic_only": env("DDX_ALLOW_HEURISTIC_ONLY", "1") not in ("0", "false", "no"),
@@ -157,6 +189,18 @@ class Geocoder:
         self._nom_lock = threading.Lock()
         self._last_nom = 0.0
         self._load()
+
+    def load_cache(self, cache):
+        """Warm-start resolved-place cache from a previous run (instant repeats)."""
+        if isinstance(cache, dict):
+            with self._lock:
+                for k, v in cache.items():
+                    if isinstance(v, dict) and isinstance(v.get("lat"), (int, float)):
+                        self.cache[k] = v
+
+    def dump_cache(self):
+        with self._lock:
+            return {k: v for k, v in self.cache.items() if v}
 
     def _load(self):
         try:
@@ -629,13 +673,14 @@ class OllamaClient:
             raise ValueError("ollama returned no parseable JSON")
         return parsed
 
-    def extract(self, post):
+    def extract(self, post, verify=None):
+        do_verify = self.verify if verify is None else verify
         user = (f"Post date: {post.get('date') or 'unknown'}\nPost link: {post.get('link') or 'unknown'}"
                 f"\n\nPost text:\n\"\"\"\n{post.get('text') or ''}\n\"\"\"")
         first = normalize_extraction(self._chat(
             [{"role": "system", "content": SYSTEM_PROMPT}, {"role": "user", "content": user}],
             CONFIG["llm_timeout"]))
-        if not self.verify or not first["isRelevant"] or not first["sightings"]:
+        if not do_verify or not first["isRelevant"] or not first["sightings"]:
             return first
         try:
             return normalize_extraction(self._chat(
@@ -865,6 +910,10 @@ class Store:
         with self.lock:
             return sorted(self.by_id.values(), key=lambda s: parse_iso(s.get("timestamp")))
 
+    def count(self):
+        with self.lock:
+            return len(self.by_id)
+
     def set_last(self, channel, pid):
         with self.lock:
             if pid > self.last_post_id.get(channel, 0):
@@ -879,6 +928,13 @@ class Store:
             for k in [k for k, s in self.by_id.items() if parse_iso(s.get("timestamp")) and parse_iso(s["timestamp"]) < cutoff]:
                 del self.by_id[k]
 
+    def load(self, sightings, last_post_id):
+        with self.lock:
+            for s in sightings or []:
+                if s.get("id"):
+                    self.by_id[s["id"]] = s
+            self.last_post_id.update(last_post_id or {})
+
 
 class Pipeline:
     def __init__(self, store, geocoder, llm):
@@ -888,14 +944,14 @@ class Pipeline:
         self.use_llm = True
         self.updated_at = None
 
-    def process_post(self, post):
+    def process_post(self, post, verify=None):
         if is_interception_recap(post.get("text", "")):
             return []
         heur = analyze_post(post.get("text", ""))
         extraction = None
         if self.use_llm:
             try:
-                extraction = self.llm.extract(post)
+                extraction = self.llm.extract(post, verify=verify)
             except Exception as e:
                 log(f"  llm extract failed for {post['postId']}: {e}")
         if (not extraction or not extraction["isRelevant"] or not extraction["sightings"]) and \
@@ -952,51 +1008,104 @@ class Pipeline:
             progress("fetch", channel, pages, len(posts), 0, 0, 0)
         return [p for p in posts if parse_iso(p.get("date")) >= since_ms or not p.get("date")], pages
 
+    def _verify_for(self, post):
+        # During bulk backfill, only spend the extra verification call on recent
+        # posts (current threats); let old history load single-pass and fast.
+        if not CONFIG["verify"]:
+            return False
+        age_h = (now_ms() - parse_iso(post.get("date"))) / 3600000 if post.get("date") else 0
+        return age_h <= CONFIG["verify_recent_hours"]
+
     def backfill(self, progress):
         hours = CONFIG["backfill_hours"]
         since = now_ms() - hours * 3600 * 1000
+        channels = CONFIG["channels"]
+
+        # Fetch every channel's history in parallel — 3 channels paginating at
+        # once instead of one after another.
         tasks = []
-        for channel in CONFIG["channels"]:
-            progress("fetch", channel, 1, 0, 0, 0, 0)
-            try:
-                posts, pages = self.fetch_history(channel, since, CONFIG["backfill_max_pages"], progress)
-            except Exception as e:
-                log(f"backfill @{channel} failed: {e}")
-                continue
+
+        def gather(channel):
+            posts, pages = self.fetch_history(channel, since, CONFIG["backfill_max_pages"], progress)
             last = self.store.get_last(channel)
             fresh = [p for p in posts if p["postId"] > last and (p.get("text") or "").strip()]
             progress("fetched", channel, pages, len(posts), 0, len(fresh), 0)
-            tasks.extend(fresh)
+            return fresh
+
+        with ThreadPoolExecutor(max_workers=max(1, len(channels))) as ex:
+            futs = {ex.submit(gather, ch): ch for ch in channels}
+            for fut in as_completed(futs):
+                try:
+                    tasks.extend(fut.result())
+                except Exception as e:
+                    log(f"backfill @{futs[fut]} failed: {e}")
+
         total = len(tasks)
+        log(f"backfill: {total} post(s) to analyze (x{CONFIG['concurrency']})")
+        if not total:
+            progress("done", "", 0, 0, 0, 0, 0)
+            return
+
+        # Newest first, so the current threat picture appears within seconds
+        # while older history keeps filling in behind it.
+        tasks.sort(key=lambda p: parse_iso(p.get("date")), reverse=True)
+        done = 0
         sightings = 0
-        log(f"backfill: {total} post(s) to analyze")
-        for done, post in enumerate(sorted(tasks, key=lambda p: parse_iso(p.get("date"))), 1):
-            sightings += len(self.process_post(post))
+        counter_lock = threading.Lock()
+
+        def run(post):
+            nonlocal done, sightings
+            created = self.process_post(post, verify=self._verify_for(post))
             self.store.set_last(post["channel"], post["postId"])
-            if done % 3 == 0 or done == total:
-                progress("extract", "", 0, 0, done, total, sightings)
+            with counter_lock:
+                done += 1
+                sightings += len(created)
+                d, s = done, sightings
+            if d % 4 == 0 or d == total:
+                progress("extract", "", 0, 0, d, total, s)
                 self.write_outputs()
+
+        with ThreadPoolExecutor(max_workers=CONFIG["concurrency"]) as ex:
+            list(as_completed([ex.submit(run, p) for p in tasks]))
+
         self.store.prune(CONFIG["history_hours"])
         self.write_outputs()
+        self.persist()
         progress("done", "", 0, 0, total, total, sightings)
         log(f"backfill complete: +{sightings} sighting(s), {len(build_tracks(self.store.all()))} track(s)")
 
     def poll(self):
+        channels = CONFIG["channels"]
         new = 0
-        for channel in CONFIG["channels"]:
-            try:
-                posts = fetch_channel(channel)
-            except Exception as e:
-                log(f"poll @{channel} failed: {e}")
-                continue
+
+        def gather(channel):
+            posts = fetch_channel(channel)
             last = self.store.get_last(channel)
-            fresh = [p for p in posts if p["postId"] > last and (p.get("text") or "").strip()]
-            fresh = fresh[-CONFIG["max_new_posts"]:]
-            for post in fresh:
-                new += len(self.process_post(post))
-                self.store.set_last(channel, post["postId"])
+            return channel, [p for p in posts if p["postId"] > last and (p.get("text") or "").strip()][-CONFIG["max_new_posts"]:]
+
+        fresh_all = []
+        with ThreadPoolExecutor(max_workers=max(1, len(channels))) as ex:
+            for fut in as_completed([ex.submit(gather, ch) for ch in channels]):
+                try:
+                    _ch, fresh = fut.result()
+                    fresh_all.extend(fresh)
+                except Exception as e:
+                    log(f"poll fetch failed: {e}")
+
+        if fresh_all:
+            with ThreadPoolExecutor(max_workers=CONFIG["concurrency"]) as ex:
+                results = {ex.submit(self.process_post, p): p for p in fresh_all}
+                for fut in as_completed(results):
+                    post = results[fut]
+                    try:
+                        new += len(fut.result())
+                    except Exception as e:
+                        log(f"poll extract failed for {post.get('postId')}: {e}")
+                    self.store.set_last(post["channel"], post["postId"])
+
         self.store.prune(CONFIG["history_hours"])
         self.write_outputs()
+        self.persist()
         if new:
             log(f"poll: +{new} sighting(s)")
         return new
@@ -1005,13 +1114,42 @@ class Pipeline:
         self.updated_at = iso_now()
         sightings = self.store.all()
         tracks = build_tracks(sightings)
-        tmp = os.path.join(DATA_OUT, "sightings.json")
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"sightings": sightings, "updatedAt": self.updated_at,
-                       "backend": ("ollama:" + CONFIG["ollama_model"]) if self.use_llm else "heuristic"},
-                      f, ensure_ascii=False)
-        with open(os.path.join(DATA_OUT, "tracks.json"), "w", encoding="utf-8") as f:
-            json.dump({"tracks": tracks, "updatedAt": self.updated_at}, f, ensure_ascii=False)
+        # Write atomically (tmp + replace) so the browser never reads half a file.
+        for name, payload in (("sightings.json", {"sightings": sightings, "updatedAt": self.updated_at,
+                                                   "backend": ("ollama:" + CONFIG["ollama_model"]) if self.use_llm else "heuristic"}),
+                              ("tracks.json", {"tracks": tracks, "updatedAt": self.updated_at})):
+            path = os.path.join(DATA_OUT, name)
+            tmp = path + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False)
+            os.replace(tmp, path)
+
+    def persist(self):
+        """Save sightings + cursors + geocode cache so the next launch is instant."""
+        try:
+            tmp = STATE_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                json.dump({"sightings": self.store.all(), "lastPostId": self.store.last_post_id,
+                           "geocache": self.geocoder.dump_cache(), "savedAt": iso_now()},
+                          f, ensure_ascii=False)
+            os.replace(tmp, STATE_FILE)
+        except Exception as e:
+            log(f"persist failed: {e}")
+
+    def restore(self):
+        """Load the persisted cache; returns the number of sightings restored."""
+        try:
+            if not os.path.exists(STATE_FILE):
+                return 0
+            with open(STATE_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+        except Exception as e:
+            log(f"restore failed: {e}")
+            return 0
+        self.store.load(data.get("sightings"), data.get("lastPostId"))
+        self.geocoder.load_cache(data.get("geocache"))
+        self.store.prune(CONFIG["history_hours"])
+        return self.store.count()
 
 
 # --------------------------------------------------------------------------- #
@@ -1050,6 +1188,14 @@ def make_progress():
 # Worker thread
 # --------------------------------------------------------------------------- #
 def worker(pipeline):
+    # Instant paint: restore the last session from disk and render it before we
+    # touch the network, so the map is full the moment the window opens.
+    restored = pipeline.restore()
+    if restored:
+        pipeline.write_outputs()
+        log(f"restored {restored} sighting(s) from last session")
+        write_status("idle", f"Loaded {restored} sighting(s) from cache — refreshing…")
+
     write_status("starting", "Checking AI backend…")
     ok = pipeline.llm.ping()
     if ok:
@@ -1107,8 +1253,14 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 def serve():
-    httpd = ThreadingHTTPServer(("127.0.0.1", CONFIG["port"]), Handler)
-    return httpd
+    """Bind the requested port, or fall back to any free port if it's taken."""
+    for port in (CONFIG["port"], 0):
+        try:
+            httpd = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+            return httpd, httpd.server_address[1]
+        except OSError:
+            continue
+    raise OSError("could not bind a local port")
 
 
 # --------------------------------------------------------------------------- #
@@ -1129,27 +1281,46 @@ def main():
     llm = OllamaClient()
     pipeline = Pipeline(store, geocoder, llm)
 
-    httpd = serve()
-    url = f"http://127.0.0.1:{CONFIG['port']}/"
+    httpd, port = serve()
+    url = f"http://127.0.0.1:{port}/"
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    threading.Thread(target=worker, args=(pipeline,), daemon=True).start()
+
     log("=" * 60)
     log("The Big Drone Detector — local app")
     log(f"  AI backend : Ollama {CONFIG['ollama_model']} @ {CONFIG['ollama_url']}")
     log(f"  Channels   : {', '.join(CONFIG['channels'])}")
     log(f"  Backfill   : last {CONFIG['backfill_hours']:.0f}h on startup")
-    log(f"  Map        : {url}")
+    log(f"  Cache      : {STATE_FILE}")
+    log(f"  URL        : {url}")
     log("=" * 60)
-    log("Open the map in your browser (opening automatically). Ctrl+C to stop.")
 
-    threading.Thread(target=worker, args=(pipeline,), daemon=True).start()
+    # Prefer a real native window (pywebview). Fall back to the browser.
+    if CONFIG["native"]:
+        try:
+            import webview  # type: ignore
+            log("Opening native window… (close it or press Ctrl+C to stop)")
+            webview.create_window("The Big Drone Detector", url, width=1440, height=920,
+                                  min_size=(960, 640), background_color="#0d1b2a")
+            webview.start()
+            log("window closed — shutting down.")
+            return
+        except ImportError:
+            log("pywebview not installed — falling back to the browser.")
+            log("  For the native app window, run:  pip install pywebview")
+        except Exception as e:
+            log(f"native window failed ({e}) — falling back to the browser.")
+
+    log("Opening the map in your browser. Ctrl+C to stop.")
     try:
         webbrowser.open(url)
     except Exception:
         pass
     try:
-        httpd.serve_forever()
+        while True:
+            time.sleep(1)
     except KeyboardInterrupt:
         log("shutting down…")
-        httpd.shutdown()
 
 
 if __name__ == "__main__":

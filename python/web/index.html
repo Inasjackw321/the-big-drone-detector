@@ -7,30 +7,42 @@
     <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
     <style>
       * { box-sizing: border-box; margin: 0; padding: 0; }
-      html, body { height: 100%; background: #0d1b2a; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+      html, body { height: 100%; background: #0a1622; overflow: hidden; font-family: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
       #map { position: absolute; inset: 0; }
 
-      .hdr { position: absolute; top: 0; left: 0; right: 0; height: 44px; z-index: 1100; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: rgba(10,20,32,0.92); border-bottom: 1px solid #22384f; backdrop-filter: blur(6px); color: #cde0f5; font-size: 13px; }
-      .hdr b { color: #fff; }
+      .hdr { position: absolute; top: 0; left: 0; right: 0; height: 48px; z-index: 1100; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: linear-gradient(180deg, rgba(13,26,42,0.96), rgba(9,18,30,0.92)); border-bottom: 1px solid #223a52; box-shadow: 0 2px 14px rgba(0,0,0,0.4); backdrop-filter: blur(8px); color: #cde0f5; font-size: 13px; }
+      .hdr .title { font-weight: 700; color: #fff; letter-spacing: 0.2px; font-size: 14px; }
       .hdr-status { flex: 1; color: #8ab0d0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .hdr a { color: #5aafff; text-decoration: none; }
-      .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3fd87f; animation: blink 2s ease-in-out infinite; }
-      .dot.busy { background: #ffb03d; animation: blink 0.9s ease-in-out infinite; }
-      .dot.error { background: #ff5c5c; }
-      @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+      .hdr .backend { color: #6f8fac; font-size: 10.5px; font-variant-numeric: tabular-nums; padding: 2px 8px; border: 1px solid #22384f; border-radius: 20px; white-space: nowrap; }
+      .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #3fd87f; box-shadow: 0 0 8px currentColor; color: #3fd87f; animation: blink 2s ease-in-out infinite; }
+      .dot.busy { background: #ffb03d; color: #ffb03d; animation: blink 0.9s ease-in-out infinite; }
+      .dot.error { background: #ff5c5c; color: #ff5c5c; }
+      @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.35; } }
+
+      /* stat pills */
+      .stats { display: flex; gap: 6px; align-items: center; }
+      .pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; font-size: 11.5px; font-weight: 700; font-variant-numeric: tabular-nums; background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.08); color: #cde0f5; }
+      .pill .pdot { width: 7px; height: 7px; border-radius: 50%; }
+      .pill.lvl { padding: 3px 11px; letter-spacing: 0.5px; }
+
       .btn { cursor: pointer; background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; font-family: inherit; }
       .btn:hover { background: #1e3550; }
 
-      .backfill { position: absolute; top: 44px; left: 0; right: 0; z-index: 1090; background: rgba(10,20,32,0.9); border-bottom: 1px solid #22384f; padding: 6px 14px; display: none; align-items: center; gap: 12px; color: #9fc2e0; font-size: 12px; backdrop-filter: blur(6px); }
-      .bf-track { flex: 1; height: 5px; background: #142438; border-radius: 3px; overflow: hidden; }
-      .bf-fill { height: 100%; width: 0%; background: linear-gradient(90deg,#3b82f6,#5ad1ff); transition: width 0.3s; }
+      .backfill { position: absolute; top: 48px; left: 0; right: 0; z-index: 1090; background: rgba(10,20,32,0.92); border-bottom: 1px solid #22384f; padding: 7px 14px; display: none; align-items: center; gap: 12px; color: #bcd6ee; font-size: 12px; backdrop-filter: blur(6px); }
+      .bf-track { flex: 1; height: 6px; background: #12233a; border-radius: 4px; overflow: hidden; position: relative; }
+      .bf-fill { height: 100%; width: 0%; border-radius: 4px; background: linear-gradient(90deg,#3b82f6,#5ad1ff); transition: width 0.4s ease; position: relative; overflow: hidden; }
+      .bf-fill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,0.45), transparent); animation: shimmer 1.3s linear infinite; }
+      @keyframes shimmer { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
 
-      .clock { position: absolute; top: 56px; left: 14px; z-index: 1000; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.9),0 0 2px rgba(0,0,0,0.9); line-height: 1.05; pointer-events: none; user-select: none; }
-      .clock .cd, .clock .ct { font-size: 28px; font-weight: 700; letter-spacing: 2px; }
-      .clock .cz { font-size: 11px; color: #8ab0d0; letter-spacing: 2px; margin-top: 2px; }
+      .clock { position: absolute; top: 60px; left: 16px; z-index: 1000; color: #fff; text-shadow: 0 2px 10px rgba(0,0,0,0.9),0 0 2px rgba(0,0,0,0.9); line-height: 1.0; pointer-events: none; user-select: none; font-variant-numeric: tabular-nums; }
+      .clock .cd { font-size: 22px; font-weight: 700; letter-spacing: 3px; color: #b9d4ee; }
+      .clock .ct { font-size: 34px; font-weight: 800; letter-spacing: 3px; color: #fff; }
+      .clock .cz { font-size: 10.5px; color: #7fa3c4; letter-spacing: 3px; margin-top: 3px; font-weight: 600; }
+      .clock.replay .ct { color: #ffd9a0; }
       .clock.replay .cz { color: #ffb03d; }
 
-      .warn-panel { position: absolute; top: 150px; left: 14px; z-index: 1000; width: 244px; max-height: 46vh; display: none; overflow: hidden; background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); backdrop-filter: blur(6px); color: #cde0f5; }
+      .warn-panel { position: absolute; top: 156px; left: 16px; z-index: 1000; width: 248px; max-height: 44vh; display: none; overflow: hidden; background: linear-gradient(180deg, rgba(16,30,46,0.94), rgba(11,22,36,0.92)); border: 1px solid #2d4a6a; border-radius: 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); backdrop-filter: blur(8px); color: #cde0f5; }
       .warn-panel.danger { border-color: #ff3b3b; box-shadow: 0 0 0 1px #ff3b3b,0 6px 20px rgba(0,0,0,0.55); }
       .warn-head { padding: 9px 12px; font-size: 13px; font-weight: 700; color: #fff; border-bottom: 1px solid #2d4a6a; display: flex; align-items: center; gap: 7px; }
       .warn-head .wdot { width: 9px; height: 9px; border-radius: 50%; background: #ff7a3d; }
@@ -56,16 +68,18 @@
       .legend .lline { width: 16px; height: 0; border-top: 2px solid #ff4fd8; box-shadow: 0 0 4px #ff4fd8; flex: 0 0 auto; }
       .legend .lsub { color: #8ab0d0; margin-top: 7px; border-top: 1px solid #2d4a6a; padding-top: 6px; line-height: 1.5; }
 
-      .timeline { position: absolute; left: 12px; right: 12px; bottom: 12px; height: 42px; z-index: 1100; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: rgba(10,20,32,0.92); border: 1px solid #22384f; border-radius: 12px; backdrop-filter: blur(6px); box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
-      .tl-btn { cursor: pointer; background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 4px 10px; font-size: 13px; font-family: inherit; white-space: nowrap; }
+      .timeline { position: absolute; left: 12px; right: 12px; bottom: 12px; height: 46px; z-index: 1100; display: flex; align-items: center; gap: 11px; padding: 0 14px; background: linear-gradient(180deg, rgba(13,26,42,0.94), rgba(9,18,30,0.92)); border: 1px solid #223a52; border-radius: 13px; backdrop-filter: blur(8px); box-shadow: 0 6px 20px rgba(0,0,0,0.5); }
+      .tl-btn { cursor: pointer; background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 5px 11px; font-size: 13px; font-family: inherit; white-space: nowrap; transition: background 0.15s; }
       .tl-btn:hover { background: #1e3550; }
+      .tl-btn#tlPlay { min-width: 34px; text-align: center; }
       .tl-btn.live { color: #8ab0d0; font-size: 11.5px; font-weight: 700; }
-      .tl-btn.live.active { color: #3fd87f; border-color: #3fd87f; }
-      .tl-speed { background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 4px 6px; font-size: 12px; font-family: inherit; }
-      .tl-time { min-width: 150px; text-align: center; color: #cde0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; white-space: nowrap; }
-      .tl-time.replay { color: #ffb03d; }
-      #tlSlider { flex: 1; -webkit-appearance: none; height: 5px; background: #142438; border-radius: 3px; outline: none; }
-      #tlSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #5ad1ff; border: 2px solid #0d1b2a; box-shadow: 0 0 6px rgba(90,209,255,0.7); cursor: pointer; }
+      .tl-btn.live.active { color: #3fd87f; border-color: #2f6b4c; background: #12281d; }
+      .tl-speed { background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 5px 6px; font-size: 12px; font-family: inherit; }
+      .tl-time { min-width: 156px; text-align: center; color: #dbe9f7; font-size: 12px; font-weight: 700; letter-spacing: 0.3px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+      .tl-time.replay { color: #ffb84d; }
+      #tlSlider { flex: 1; -webkit-appearance: none; appearance: none; height: 6px; border-radius: 4px; outline: none; background: linear-gradient(90deg, #5ad1ff 0%, #3a6f92 0%, #142a40 0%); cursor: pointer; }
+      #tlSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; border-radius: 50%; background: #5ad1ff; border: 2px solid #0a1622; box-shadow: 0 0 8px rgba(90,209,255,0.8); cursor: pointer; }
+      #tlSlider::-moz-range-thumb { width: 15px; height: 15px; border-radius: 50%; background: #5ad1ff; border: 2px solid #0a1622; box-shadow: 0 0 8px rgba(90,209,255,0.8); cursor: pointer; }
 
       .leaflet-popup-content-wrapper { background: #1a2d42; color: #e0eaf5; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.6); border: 1px solid #2d4a6a; }
       .leaflet-popup-tip { background: #1a2d42; }
@@ -90,7 +104,7 @@
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
       .place-label { background: none !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
       .place-label::before { display: none !important; }
-      .place-label span { font-size: 11px; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.95); white-space: nowrap; }
+      .place-label span { font-size: 11px; font-weight: 700; white-space: nowrap; padding: 1px 6px; border-radius: 5px; background: rgba(8,15,24,0.62); border: 1px solid rgba(255,255,255,0.06); text-shadow: 0 1px 2px rgba(0,0,0,0.9); }
       .trk-tip { background: rgba(13,27,42,0.94) !important; color: #e0eaf5 !important; border: 1px solid #2d4a6a !important; border-radius: 8px !important; font-size: 12px; }
       .trk-tip::before { display: none !important; }
       .leaflet-control-zoom a { background: #1a2d42 !important; color: #cde0f5 !important; border-color: #2d4a6a !important; }
@@ -103,10 +117,10 @@
 
     <header class="hdr">
       <span class="dot" id="statusDot"></span>
-      <b>The Big Drone Detector</b>
-      <span id="threatBadge"></span>
+      <span class="title">The Big Drone Detector</span>
       <span class="hdr-status" id="statusText">connecting…</span>
-      <span id="backendLabel" style="color:#8ab0d0;font-size:11px"></span>
+      <span class="stats" id="stats"></span>
+      <span class="backend" id="backendLabel"></span>
     </header>
 
     <div class="backfill" id="backfillBar">
