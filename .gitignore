@@ -7,6 +7,8 @@ out/
 # Runtime data written by the app
 userData/
 src/data/runtime-*.json
+python/web/data/
+__pycache__/
 
 # QA artifacts
 demo-screenshot.png

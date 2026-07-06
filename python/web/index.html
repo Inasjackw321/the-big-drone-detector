@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>The Big Drone Detector</title>
+    <link rel="stylesheet" href="vendor/leaflet/leaflet.css" />
+    <style>
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      html, body { height: 100%; background: #0d1b2a; overflow: hidden; font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif; }
+      #map { position: absolute; inset: 0; }
+
+      .hdr { position: absolute; top: 0; left: 0; right: 0; height: 44px; z-index: 1100; display: flex; align-items: center; gap: 14px; padding: 0 14px; background: rgba(10,20,32,0.92); border-bottom: 1px solid #22384f; backdrop-filter: blur(6px); color: #cde0f5; font-size: 13px; }
+      .hdr b { color: #fff; }
+      .hdr-status { flex: 1; color: #8ab0d0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .hdr a { color: #5aafff; text-decoration: none; }
+      .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #3fd87f; animation: blink 2s ease-in-out infinite; }
+      .dot.busy { background: #ffb03d; animation: blink 0.9s ease-in-out infinite; }
+      .dot.error { background: #ff5c5c; }
+      @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+      .btn { cursor: pointer; background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 5px 12px; font-size: 12.5px; font-weight: 600; font-family: inherit; }
+      .btn:hover { background: #1e3550; }
+
+      .backfill { position: absolute; top: 44px; left: 0; right: 0; z-index: 1090; background: rgba(10,20,32,0.9); border-bottom: 1px solid #22384f; padding: 6px 14px; display: none; align-items: center; gap: 12px; color: #9fc2e0; font-size: 12px; backdrop-filter: blur(6px); }
+      .bf-track { flex: 1; height: 5px; background: #142438; border-radius: 3px; overflow: hidden; }
+      .bf-fill { height: 100%; width: 0%; background: linear-gradient(90deg,#3b82f6,#5ad1ff); transition: width 0.3s; }
+
+      .clock { position: absolute; top: 56px; left: 14px; z-index: 1000; color: #fff; text-shadow: 0 2px 8px rgba(0,0,0,0.9),0 0 2px rgba(0,0,0,0.9); line-height: 1.05; pointer-events: none; user-select: none; }
+      .clock .cd, .clock .ct { font-size: 28px; font-weight: 700; letter-spacing: 2px; }
+      .clock .cz { font-size: 11px; color: #8ab0d0; letter-spacing: 2px; margin-top: 2px; }
+      .clock.replay .cz { color: #ffb03d; }
+
+      .warn-panel { position: absolute; top: 150px; left: 14px; z-index: 1000; width: 244px; max-height: 46vh; display: none; overflow: hidden; background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); backdrop-filter: blur(6px); color: #cde0f5; }
+      .warn-panel.danger { border-color: #ff3b3b; box-shadow: 0 0 0 1px #ff3b3b,0 6px 20px rgba(0,0,0,0.55); }
+      .warn-head { padding: 9px 12px; font-size: 13px; font-weight: 700; color: #fff; border-bottom: 1px solid #2d4a6a; display: flex; align-items: center; gap: 7px; }
+      .warn-head .wdot { width: 9px; height: 9px; border-radius: 50%; background: #ff7a3d; }
+      .warn-panel.danger .wdot { background: #ff3b3b; animation: blink 1s ease-in-out infinite; }
+      .warn-list { overflow-y: auto; max-height: calc(46vh - 40px); }
+      .warn-item { padding: 8px 12px; border-bottom: 1px solid rgba(45,74,106,0.5); cursor: pointer; display: flex; gap: 9px; align-items: flex-start; }
+      .warn-item:hover { background: #1a2d42; }
+      .warn-sev { width: 9px; height: 9px; border-radius: 50%; margin-top: 3px; flex: 0 0 auto; }
+      .warn-region { font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+      .warn-meta { font-size: 11px; color: #8ab0d0; display: block; }
+
+      .ctrl-col { position: absolute; top: 56px; right: 12px; z-index: 1001; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
+      .chip-row { display: flex; gap: 5px; flex-wrap: wrap; max-width: 340px; justify-content: flex-end; }
+      .chip { cursor: pointer; background: rgba(13,27,42,0.88); color: #8ab0d0; border: 1px solid #2d4a6a; border-radius: 14px; padding: 4px 11px; font-size: 11.5px; box-shadow: 0 1px 6px rgba(0,0,0,0.4); backdrop-filter: blur(6px); white-space: nowrap; user-select: none; font-family: inherit; }
+      .chip:hover { background: #1a2d42; color: #cde0f5; }
+      .chip.active { background: #243f5e; color: #fff; border-color: #5aafff; }
+      #layerBar .chip.active { background: #1e3a2d; border-color: #3fd87f; color: #d9ffe9; }
+
+      .legend { position: absolute; right: 12px; bottom: 64px; z-index: 1000; width: 210px; background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,0.5); backdrop-filter: blur(6px); color: #cde0f5; padding: 10px 12px; font-size: 11.5px; }
+      .legend h4 { font-size: 12px; color: #fff; margin-bottom: 6px; }
+      .legend .lrow { display: flex; align-items: center; gap: 7px; margin: 3px 0; }
+      .legend .ldot { width: 9px; height: 9px; border-radius: 50%; flex: 0 0 auto; }
+      .legend .lline { width: 16px; height: 0; border-top: 2px solid #ff4fd8; box-shadow: 0 0 4px #ff4fd8; flex: 0 0 auto; }
+      .legend .lsub { color: #8ab0d0; margin-top: 7px; border-top: 1px solid #2d4a6a; padding-top: 6px; line-height: 1.5; }
+
+      .timeline { position: absolute; left: 12px; right: 12px; bottom: 12px; height: 42px; z-index: 1100; display: flex; align-items: center; gap: 10px; padding: 0 12px; background: rgba(10,20,32,0.92); border: 1px solid #22384f; border-radius: 12px; backdrop-filter: blur(6px); box-shadow: 0 4px 16px rgba(0,0,0,0.5); }
+      .tl-btn { cursor: pointer; background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 4px 10px; font-size: 13px; font-family: inherit; white-space: nowrap; }
+      .tl-btn:hover { background: #1e3550; }
+      .tl-btn.live { color: #8ab0d0; font-size: 11.5px; font-weight: 700; }
+      .tl-btn.live.active { color: #3fd87f; border-color: #3fd87f; }
+      .tl-speed { background: #16283c; color: #cde0f5; border: 1px solid #2d4a6a; border-radius: 8px; padding: 4px 6px; font-size: 12px; font-family: inherit; }
+      .tl-time { min-width: 150px; text-align: center; color: #cde0f5; font-size: 12px; font-weight: 700; letter-spacing: 0.5px; white-space: nowrap; }
+      .tl-time.replay { color: #ffb03d; }
+      #tlSlider { flex: 1; -webkit-appearance: none; height: 5px; background: #142438; border-radius: 3px; outline: none; }
+      #tlSlider::-webkit-slider-thumb { -webkit-appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #5ad1ff; border: 2px solid #0d1b2a; box-shadow: 0 0 6px rgba(90,209,255,0.7); cursor: pointer; }
+
+      .leaflet-popup-content-wrapper { background: #1a2d42; color: #e0eaf5; border-radius: 10px; box-shadow: 0 4px 20px rgba(0,0,0,0.6); border: 1px solid #2d4a6a; }
+      .leaflet-popup-tip { background: #1a2d42; }
+      .leaflet-popup-content { margin: 12px 14px; font-size: 13px; line-height: 1.5; }
+      .popup-title { font-size: 14px; font-weight: 700; margin-bottom: 5px; color: #fff; }
+      .popup-meta { color: #8ab0d0; font-size: 12px; margin-bottom: 3px; }
+      .popup-status { font-size: 12px; font-weight: 700; margin-bottom: 3px; }
+      .popup-acc { color: #6f93b4; font-size: 11px; margin-bottom: 3px; }
+      .popup-confirm { color: #3fd87f; font-size: 11.5px; font-weight: 600; margin-bottom: 3px; }
+      .popup-dest { color: #ffd27f; font-size: 12px; margin-bottom: 3px; }
+      .popup-text { font-size: 12px; max-height: 75px; overflow-y: auto; white-space: pre-wrap; border-top: 1px solid #2d4a6a; padding-top: 6px; margin-top: 6px; color: #c0d8ee; }
+      .popup-link a { color: #5aafff; font-size: 12px; text-decoration: none; }
+
+      .threat-icon, .arrow-icon { background: none; border: none; }
+      .threat-icon svg { overflow: visible; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); }
+      .arrow-icon svg { overflow: visible; }
+      .threat-icon .pulse { animation: ping 2.4s ease-out infinite; transform-origin: center; }
+      .threat-icon .pulse-alert { animation: ping-alert 2s ease-out infinite; transform-origin: center; }
+      .threat-icon .rotor { animation: spin 3s linear infinite; transform-origin: center; transform-box: fill-box; }
+      @keyframes ping { 0% { opacity: 0.5; } 70%,100% { opacity: 0; transform: scale(2.4); } }
+      @keyframes ping-alert { 0% { opacity: 0.6; } 70%,100% { opacity: 0; transform: scale(1.8); } }
+      @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      .place-label { background: none !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
+      .place-label::before { display: none !important; }
+      .place-label span { font-size: 11px; font-weight: 700; text-shadow: 0 1px 3px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.95); white-space: nowrap; }
+      .trk-tip { background: rgba(13,27,42,0.94) !important; color: #e0eaf5 !important; border: 1px solid #2d4a6a !important; border-radius: 8px !important; font-size: 12px; }
+      .trk-tip::before { display: none !important; }
+      .leaflet-control-zoom a { background: #1a2d42 !important; color: #cde0f5 !important; border-color: #2d4a6a !important; }
+      .leaflet-control-attribution { background: rgba(13,27,42,0.7) !important; color: #8aa8c8 !important; }
+      .leaflet-top { top: 48px; }
+    </style>
+  </head>
+  <body>
+    <div id="map"></div>
+
+    <header class="hdr">
+      <span class="dot" id="statusDot"></span>
+      <b>The Big Drone Detector</b>
+      <span id="threatBadge"></span>
+      <span class="hdr-status" id="statusText">connecting…</span>
+      <span id="backendLabel" style="color:#8ab0d0;font-size:11px"></span>
+    </header>
+
+    <div class="backfill" id="backfillBar">
+      <div id="backfillLabel">Backfilling…</div>
+      <div class="bf-track"><div class="bf-fill" id="backfillFill"></div></div>
+    </div>
+
+    <div class="clock" id="clock">
+      <div class="cd" id="clockDate"></div>
+      <div class="ct" id="clockTime"></div>
+      <div class="cz" id="clockZone">UTC · LIVE</div>
+    </div>
+
+    <div class="warn-panel" id="warnPanel">
+      <div class="warn-head"><span class="wdot"></span><span id="warnTitle">Warnings</span></div>
+      <div class="warn-list" id="warnList"></div>
+    </div>
+
+    <div class="ctrl-col">
+      <div class="chip-row" id="filterBar">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="danger">Danger</button>
+        <button class="chip" data-filter="inbound">Inbound</button>
+        <button class="chip" data-filter="cleared">Cleared</button>
+        <button class="chip" data-filter="drone">Drones</button>
+        <button class="chip" data-filter="missile">Missiles</button>
+      </div>
+      <div class="chip-row" id="layerBar">
+        <button class="chip" data-layer="tracks">〰 Tracks</button>
+        <button class="chip" data-layer="zones">◎ Zones</button>
+        <button class="chip" data-layer="lines">➤ Vectors</button>
+        <button class="chip" data-layer="labels">Aa Labels</button>
+        <button class="chip" data-layer="clock">🕐 Clock</button>
+      </div>
+    </div>
+
+    <div class="legend" id="legend">
+      <h4>Legend — threat status</h4>
+      <div class="lrow"><span class="ldot" style="background:#ff3b3b"></span> Danger</div>
+      <div class="lrow"><span class="ldot" style="background:#ff7a3d"></span> Inbound</div>
+      <div class="lrow"><span class="ldot" style="background:#ffb03d"></span> Overhead</div>
+      <div class="lrow"><span class="ldot" style="background:#4fb6ff"></span> Intercepted</div>
+      <div class="lrow"><span class="ldot" style="background:#3fd87f"></span> All clear</div>
+      <div class="lrow"><span class="lline"></span> Flight track</div>
+      <div class="lsub">✈ drones · ×N = count · → heading<br />shaded circle = area under danger</div>
+    </div>
+
+    <div class="timeline" id="timeline">
+      <button class="tl-btn" id="tlPlay" title="Replay history">▶</button>
+      <select class="tl-speed" id="tlSpeed" title="Replay speed">
+        <option value="60">1 min/s</option>
+        <option value="300" selected>5 min/s</option>
+        <option value="900">15 min/s</option>
+        <option value="3600">1 h/s</option>
+      </select>
+      <input type="range" id="tlSlider" min="0" max="1000" value="1000" />
+      <div class="tl-time" id="tlTime">LIVE</div>
+      <button class="tl-btn live active" id="tlLive" title="Jump to live">● LIVE</button>
+    </div>
+
+    <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="app.js"></script>
+  </body>
+</html>
