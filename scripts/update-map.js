@@ -11,10 +11,12 @@
  *   OPENROUTER_API_KEY=sk-or-... node scripts/update-map.js
  *
  * Optional env vars:
- *   TELEGRAM_CHANNELS     default: radarrussiia,kpszsu  (comma-separated)
- *   OPENROUTER_MODEL      default: openrouter/owl-alpha
- *   DDX_RETENTION_HOURS   default: 1   (older sightings are pruned out)
- *   DDX_MAX_NEW_POSTS     default: 30  (cap per run to stay within rate limits)
+ *   TELEGRAM_CHANNELS     default: radarrussiia,kpszsu,lpr1_treugolnik
+ *   OPENROUTER_MODELS     comma-separated cascade (default: qwen → nemotron → lfm)
+ *   DDX_RETENTION_HOURS   default: 1   (live-map window; older entries pruned)
+ *   DDX_HISTORY_HOURS     default: 12  (track-building history window)
+ *   DDX_MAX_NEW_POSTS     default: 60  (cap per run to stay within rate limits)
+ *   DDX_MAX_PAGES         default: 3   (extra preview pages fetched per channel)
  */
 
 const fs = require('fs');
@@ -24,6 +26,7 @@ const { fetchChannelPosts } = require('../src/services/telegram');
 const { OpenRouterClient } = require('../src/services/openrouter');
 const { Geocoder, normalizeKey } = require('../src/services/geocode');
 const { analyzePost, isInterceptionRecap, isBlockedLocation } = require('../src/services/heuristic');
+const { buildTracks } = require('../src/services/tracks');
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -53,12 +56,20 @@ const MODELS = process.env.OPENROUTER_MODELS
 // Keep only the last hour of data — the map only shows the last hour anyway, so
 // older entries are pruned out of sightings.json instead of lingering forever.
 const RETENTION_MS = (parseFloat(process.env.DDX_RETENTION_HOURS || '1')) * 3600 * 1000;
-const MAX_NEW_POSTS = parseInt(process.env.DDX_MAX_NEW_POSTS || '30', 10);
+// A longer-lived compact history feeds the track builder: hours of waypoints
+// are needed to draw a drone's route across the country, not just the last 60m.
+const HISTORY_MS = (parseFloat(process.env.DDX_HISTORY_HOURS || '12')) * 3600 * 1000;
+const MAX_NEW_POSTS = parseInt(process.env.DDX_MAX_NEW_POSTS || '60', 10);
+// Extra preview pages to fetch per channel (t.me/s/<ch>?before=<id>) when the
+// newest page doesn't reach all the way back to the last processed post.
+const MAX_PAGES = parseInt(process.env.DDX_MAX_PAGES || '3', 10);
 // How many posts to extract from the LLM at once. Parallelism keeps a busy run
 // well under the workflow timeout instead of processing posts one-by-one.
 const CONCURRENCY = parseInt(process.env.DDX_CONCURRENCY || '6', 10);
 const LLM_TIMEOUT_MS = parseInt(process.env.DDX_LLM_TIMEOUT_MS || '25000', 10);
 const GEOCACHE = path.join(__dirname, '..', 'docs', 'data', 'geocode-cache.json');
+const HISTORY_FILE = path.join(__dirname, '..', 'docs', 'data', 'history.json');
+const TRACKS_FILE = path.join(__dirname, '..', 'docs', 'data', 'tracks.json');
 const API_KEY = process.env.OPENROUTER_API_KEY || '';
 
 // Run an async fn over items with a bounded number in flight at once.
@@ -101,6 +112,69 @@ function pruneOld(sightings) {
     const t = Date.parse(s.timestamp || s.postDate || '') || 0;
     return !t || t >= cutoff;
   });
+}
+
+// Compact record kept in history.json — enough for tracks + timeline, small
+// enough that 12 hours of a busy night stays a few hundred KB.
+function toHistoryRecord(s) {
+  return {
+    id: s.id,
+    lat: s.lat,
+    lon: s.lon,
+    timestamp: s.timestamp,
+    location: s.location,
+    region: s.region || '',
+    threatType: s.threatType,
+    status: s.status,
+    count: s.count,
+    channel: s.channel,
+    geocodePrecision: s.geocodePrecision || 'point',
+    bearing: s.bearing != null ? s.bearing : null,
+    destination: s.destination || null,
+  };
+}
+
+// Append new sightings to the long-window history, dedupe by id, prune.
+function updateHistory(newSightings) {
+  const prev = loadJson(HISTORY_FILE, { sightings: [] });
+  const byId = new Map();
+  for (const s of prev.sightings || []) byId.set(s.id, s);
+  for (const s of newSightings) byId.set(s.id, toHistoryRecord(s));
+  const cutoff = Date.now() - HISTORY_MS;
+  const kept = [...byId.values()]
+    .filter((s) => (Date.parse(s.timestamp || '') || 0) >= cutoff)
+    .sort((a, b) => (Date.parse(a.timestamp) || 0) - (Date.parse(b.timestamp) || 0));
+  return { sightings: kept, updatedAt: new Date().toISOString() };
+}
+
+// Fetch a channel's new posts, paginating back through the preview pages when
+// one page doesn't reach the last processed post (e.g. after downtime or a
+// very busy night), so no post is silently skipped.
+async function fetchNewPosts(channel, last) {
+  let posts = await fetchChannelPosts({ channel });
+  let pages = 1;
+  // Only backfill when we have a cursor — on a first run one page is plenty.
+  while (
+    last > 0 &&
+    pages <= MAX_PAGES &&
+    posts.length &&
+    posts[0].postId > last + 1
+  ) {
+    const beforeId = posts[0].postId;
+    let older;
+    try {
+      older = await fetchChannelPosts({ channel, beforeId });
+    } catch (err) {
+      console.warn(`  [paginate] @${channel} before=${beforeId} failed: ${err.message}`);
+      break;
+    }
+    const fresh = older.filter((p) => p.postId < beforeId);
+    if (!fresh.length) break;
+    posts = fresh.concat(posts);
+    pages++;
+  }
+  if (pages > 1) console.log(`  [paginate] @${channel}: fetched ${pages} pages`);
+  return posts;
 }
 
 function dedup(sightings) {
@@ -412,7 +486,7 @@ async function main() {
     const last = lastPostId[channel] || 0;
     let posts;
     try {
-      posts = await fetchChannelPosts({ channel });
+      posts = await fetchNewPosts(channel, last);
     } catch (err) {
       // One channel failing (geo-block, rate limit) shouldn't kill the others.
       console.error(`[update-map] @${channel} fetch failed: ${err.message}`);
@@ -460,6 +534,24 @@ async function main() {
   fs.mkdirSync(path.dirname(DOCS_DATA), { recursive: true });
   fs.writeFileSync(DOCS_DATA, JSON.stringify(output, null, 2));
 
+  // Long-window history + correlated flight tracks for the map's track layer.
+  // Feed the whole cleaned live window (not just this run's new sightings) so
+  // the history bootstraps from existing data on the first run after upgrade.
+  try {
+    const history = updateHistory(pruned);
+    fs.writeFileSync(HISTORY_FILE, JSON.stringify(history, null, 0));
+    const tracks = buildTracks(history.sightings);
+    fs.writeFileSync(
+      TRACKS_FILE,
+      JSON.stringify({ tracks, updatedAt: new Date().toISOString() }, null, 0)
+    );
+    console.log(
+      `[update-map] history: ${history.sightings.length} pts (${(HISTORY_MS / 3600000).toFixed(0)}h) → ${tracks.length} track(s)`
+    );
+  } catch (err) {
+    console.warn('[update-map] could not write history/tracks:', err.message);
+  }
+
   // Persist the geocode cache so future runs skip re-resolving known places.
   try {
     const cache = geocoder.dumpCache();
@@ -486,6 +578,9 @@ module.exports = {
   processPost,
   mapPool,
   pruneOld,
+  updateHistory,
+  toHistoryRecord,
+  fetchNewPosts,
   backfillFromHeuristic,
   stripSummaryCounts,
   extractWithRetry,
