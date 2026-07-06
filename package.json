@@ -1,7 +1,7 @@
 {
   "name": "the-big-drone-detector",
   "version": "1.0.0",
-  "description": "Desktop app that monitors the @radarrussiia Telegram channel, uses an OpenRouter LLM (owl-alpha) to extract drone/UAV sightings over Russia, and plots them live on a map.",
+  "description": "Desktop app that monitors Russian/Ukrainian air-threat Telegram channels, extracts drone/missile sightings with a local Ollama model (translategemma:12b) or OpenRouter, backfills history into flight tracks, and plots them on a live map with a timeline.",
   "main": "src/main.js",
   "type": "commonjs",
   "scripts": {
@@ -19,6 +19,7 @@
   "keywords": [
     "drone",
     "telegram",
+    "ollama",
     "openrouter",
     "map",
     "electron",

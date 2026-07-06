@@ -12,15 +12,30 @@ const path = require('path');
  */
 
 const DEFAULTS = {
+  // AI backend: 'ollama' runs everything locally (no key, no rate limits);
+  // 'openrouter' is the legacy cloud path.
+  aiBackend: 'ollama',
+  ollamaBaseUrl: 'http://127.0.0.1:11434',
+  ollamaModel: 'translategemma:12b',
+  // Second model-pass that re-checks every extraction against the post text.
+  verifyPass: true,
   openrouterApiKey: '',
-  openrouterModel: 'openrouter/owl-alpha',
+  openrouterModel: 'qwen/qwen3-next-80b-a3b-instruct:free',
   openrouterBaseUrl: 'https://openrouter.ai/api/v1',
-  telegramChannel: 'radarrussiia',
+  // Comma-separated list; radarrussiia & lpr1_treugolnik cover Russia,
+  // kpszsu (Ukrainian Air Force) covers strikes on Ukraine.
+  telegramChannels: 'radarrussiia,kpszsu,lpr1_treugolnik',
   pollIntervalSeconds: 120,
-  maxPostsPerPoll: 25,
+  maxPostsPerPoll: 60,
   demo: false,
-  // Discard sightings older than this many hours from the live map.
-  retentionHours: 24,
+  // Discard sightings older than this many hours (also the timeline window).
+  retentionHours: 48,
+  // On startup, page back through channel history this far so the map opens
+  // with full tracks instead of an empty canvas.
+  backfillHours: 48,
+  backfillMaxPages: 60,
+  // Parallel LLM extractions during backfill (local model → keep modest).
+  extractConcurrency: 2,
 };
 
 // Minimal .env loader (no dependency on dotenv).
@@ -73,14 +88,22 @@ class Config {
     loadDotEnv(rootDir);
 
     const fromEnv = {
+      aiBackend: process.env.DDX_AI_BACKEND || DEFAULTS.aiBackend,
+      ollamaBaseUrl: process.env.OLLAMA_BASE_URL || DEFAULTS.ollamaBaseUrl,
+      ollamaModel: process.env.OLLAMA_MODEL || DEFAULTS.ollamaModel,
+      verifyPass: asBool(process.env.DDX_VERIFY, DEFAULTS.verifyPass),
       openrouterApiKey: process.env.OPENROUTER_API_KEY || DEFAULTS.openrouterApiKey,
       openrouterModel: process.env.OPENROUTER_MODEL || DEFAULTS.openrouterModel,
       openrouterBaseUrl: process.env.OPENROUTER_BASE_URL || DEFAULTS.openrouterBaseUrl,
-      telegramChannel: process.env.TELEGRAM_CHANNEL || DEFAULTS.telegramChannel,
+      telegramChannels:
+        process.env.TELEGRAM_CHANNELS || process.env.TELEGRAM_CHANNEL || DEFAULTS.telegramChannels,
       pollIntervalSeconds: asInt(process.env.POLL_INTERVAL_SECONDS, DEFAULTS.pollIntervalSeconds),
       maxPostsPerPoll: asInt(process.env.DDX_MAX_POSTS, DEFAULTS.maxPostsPerPoll),
       demo: asBool(process.env.DDX_DEMO, DEFAULTS.demo),
       retentionHours: asInt(process.env.DDX_RETENTION_HOURS, DEFAULTS.retentionHours),
+      backfillHours: asInt(process.env.DDX_BACKFILL_HOURS, DEFAULTS.backfillHours),
+      backfillMaxPages: asInt(process.env.DDX_BACKFILL_MAX_PAGES, DEFAULTS.backfillMaxPages),
+      extractConcurrency: asInt(process.env.DDX_CONCURRENCY, DEFAULTS.extractConcurrency),
     };
 
     this.values = { ...DEFAULTS, ...fromEnv, ...this._readSettingsFile() };
@@ -99,6 +122,13 @@ class Config {
 
   get(key) {
     return this.values[key];
+  }
+
+  /** Channel list, tolerating the legacy singular `telegramChannel` setting. */
+  channels() {
+    const raw =
+      this.values.telegramChannels || this.values.telegramChannel || DEFAULTS.telegramChannels;
+    return String(raw).split(',').map((s) => s.trim()).filter(Boolean);
   }
 
   all() {

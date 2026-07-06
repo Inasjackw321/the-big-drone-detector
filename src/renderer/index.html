@@ -4,12 +4,7 @@
     <meta charset="UTF-8" />
     <meta
       http-equiv="Content-Security-Policy"
-      content="default-src 'self';
-               script-src 'self';
-               style-src 'self' 'unsafe-inline';
-               img-src 'self' data: https://*.tile.openstreetmap.org;
-               connect-src 'self';
-               font-src 'self';"
+      content="default-src 'self'; img-src 'self' https://*.basemaps.cartocdn.com data: blob:; style-src 'self' 'unsafe-inline'; connect-src 'self'; font-src 'self'"
     />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>The Big Drone Detector</title>
@@ -17,109 +12,138 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <header class="topbar">
-      <div class="brand">
-        <span class="logo">🛰️</span>
-        <div>
-          <h1>The Big Drone Detector</h1>
-          <p class="subtitle">
-            Monitoring <a href="#" id="channelLink" class="link">@radarrussiia</a> ·
-            <span id="modelLabel">openrouter/owl-alpha</span>
-          </p>
-        </div>
+    <div id="map"></div>
+
+    <!-- header -->
+    <header class="hdr no-export">
+      <div class="hdr-left">
+        <span class="dot" id="statusDot"></span>
+        <b>The Big Drone Detector</b>
+        <span id="threatBadge"></span>
       </div>
-      <div class="controls">
-        <span id="demoBadge" class="badge badge-demo hidden">DEMO</span>
-        <button id="btnPoll" class="btn">⟳ Poll now</button>
-        <button id="btnToggle" class="btn btn-primary">▶ Start monitor</button>
-        <button id="btnSettings" class="btn btn-ghost" title="Settings">⚙</button>
+      <div class="hdr-status" id="statusText">idle — press Start</div>
+      <div class="hdr-btns">
+        <button id="startBtn" class="btn primary">▶ Start</button>
+        <button id="stopBtn" class="btn" disabled>⏹ Stop</button>
+        <button id="pollBtn" class="btn" title="Poll the channels once now">⟳ Poll</button>
+        <button id="dlBtn" class="btn" title="Pick an area, then save it as a PNG">⬇ Export</button>
+        <button id="settingsBtn" class="btn" title="Settings">⚙</button>
       </div>
     </header>
 
-    <main class="layout">
-      <div id="map"></div>
+    <!-- backfill progress strip -->
+    <div class="backfill no-export" id="backfillBar" style="display:none">
+      <div class="bf-label" id="backfillLabel">Backfilling…</div>
+      <div class="bf-track"><div class="bf-fill" id="backfillFill"></div></div>
+    </div>
 
-      <aside class="sidebar">
-        <div class="sidebar-head">
-          <h2>Live sightings <span id="countBadge" class="count">0</span></h2>
-          <div class="filters">
-            <input id="search" type="text" placeholder="Filter by place / region…" />
-            <select id="typeFilter">
-              <option value="">All types</option>
-              <option value="drone">Drone / UAV</option>
-              <option value="cruise_missile">Cruise missile</option>
-              <option value="ballistic_missile">Ballistic missile</option>
-              <option value="missile">Missile</option>
-              <option value="air_defense">Air defense</option>
-              <option value="explosion">Explosion</option>
-              <option value="unknown">Unknown</option>
-            </select>
-          </div>
-        </div>
-        <ul id="sightingList" class="sighting-list"></ul>
-        <div id="emptyState" class="empty">
-          <p>No sightings yet.</p>
-          <p class="muted">
-            Press <strong>Start monitor</strong> to begin, or open
-            <strong>⚙ Settings</strong> and enable <strong>Demo mode</strong> to
-            see it working without an API key.
-          </p>
-        </div>
-      </aside>
-    </main>
+    <!-- big console clock -->
+    <div class="clock" id="clock">
+      <div class="cd" id="clockDate"></div>
+      <div class="ct" id="clockTime"></div>
+      <div class="cz" id="clockZone">UTC · LIVE</div>
+    </div>
 
-    <footer class="statusbar">
-      <span id="statusDot" class="dot dot-idle"></span>
-      <span id="statusText">Idle. Add your OpenRouter key in Settings, then Start monitor.</span>
-      <span class="spacer"></span>
-      <span id="tickInfo" class="muted"></span>
-    </footer>
+    <!-- warnings -->
+    <div class="warn-panel" id="warnPanel">
+      <div class="warn-head"><span class="wdot"></span><span id="warnTitle">Warnings</span></div>
+      <div class="warn-list" id="warnList"></div>
+    </div>
 
-    <!-- Settings modal -->
-    <div id="settingsModal" class="modal hidden">
-      <div class="modal-card">
-        <div class="modal-head">
-          <h2>Settings</h2>
-          <button id="btnCloseSettings" class="btn btn-ghost">✕</button>
+    <!-- filter + layer chips -->
+    <div class="ctrl-col no-export">
+      <div class="chip-row" id="filterBar">
+        <button class="chip active" data-filter="all">All</button>
+        <button class="chip" data-filter="danger">Danger</button>
+        <button class="chip" data-filter="inbound">Inbound</button>
+        <button class="chip" data-filter="cleared">Cleared</button>
+        <button class="chip" data-filter="drone">Drones</button>
+        <button class="chip" data-filter="missile">Missiles</button>
+      </div>
+      <div class="chip-row" id="layerBar">
+        <button class="chip" data-layer="tracks">〰 Tracks</button>
+        <button class="chip" data-layer="zones">◎ Zones</button>
+        <button class="chip" data-layer="lines">➤ Vectors</button>
+        <button class="chip" data-layer="labels">Aa Labels</button>
+        <button class="chip" data-layer="clock">🕐 Clock</button>
+      </div>
+    </div>
+
+    <!-- legend -->
+    <div class="legend no-export" id="legend">
+      <h4>Legend — threat status</h4>
+      <div class="lrow"><span class="ldot" style="background:#ff3b3b"></span> Danger</div>
+      <div class="lrow"><span class="ldot" style="background:#ff7a3d"></span> Inbound</div>
+      <div class="lrow"><span class="ldot" style="background:#ffb03d"></span> Overhead</div>
+      <div class="lrow"><span class="ldot" style="background:#4fb6ff"></span> Intercepted</div>
+      <div class="lrow"><span class="ldot" style="background:#3fd87f"></span> All clear</div>
+      <div class="lrow"><span class="lline"></span> Flight track</div>
+      <div class="lsub">✈ drones · ×N = count · → heading<br />shaded circle = area under danger</div>
+    </div>
+
+    <!-- timeline -->
+    <div class="timeline no-export" id="timeline">
+      <button class="tl-btn" id="tlPlay" title="Replay history">▶</button>
+      <select class="tl-speed" id="tlSpeed" title="Replay speed">
+        <option value="60">1 min/s</option>
+        <option value="300" selected>5 min/s</option>
+        <option value="900">15 min/s</option>
+        <option value="3600">1 h/s</option>
+      </select>
+      <input type="range" id="tlSlider" min="0" max="1000" value="1000" />
+      <div class="tl-time" id="tlTime">LIVE</div>
+      <button class="tl-btn live active" id="tlLive" title="Jump to live">● LIVE</button>
+    </div>
+
+    <!-- export chrome (visible only during PNG export) -->
+    <div class="exp-meta"><span class="t" id="expMetaTitle"></span><span class="s" id="expMetaSub"></span></div>
+    <div class="exp-warns" id="expWarns"></div>
+    <div class="exp-legend">
+      <span><i style="background:#ff3b3b"></i>Danger</span>
+      <span><i style="background:#ff7a3d"></i>Inbound</span>
+      <span><i style="background:#ffb03d"></i>Overhead</span>
+      <span><i style="background:#4fb6ff"></i>Intercepted</span>
+      <span><i style="background:#3fd87f"></i>All clear</span>
+      <span><i style="background:#ff4fd8;border-radius:0;height:2px;width:14px"></i>Track</span>
+      <span>→ heading · shaded = danger</span>
+    </div>
+
+    <!-- settings modal -->
+    <div class="modal-back" id="settingsModal" style="display:none">
+      <div class="modal">
+        <h3>Settings</h3>
+        <div class="mrow">
+          <label>AI backend</label>
+          <select id="setBackend">
+            <option value="ollama">Ollama (local)</option>
+            <option value="openrouter">OpenRouter (cloud)</option>
+          </select>
         </div>
-        <div class="modal-body">
-          <label class="field">
-            <span>OpenRouter API key</span>
-            <input id="setApiKey" type="password" placeholder="sk-or-… (stored locally)" />
-            <small id="keyHint" class="muted">Get a free key at openrouter.ai/keys</small>
-          </label>
-          <label class="field">
-            <span>Model</span>
-            <input id="setModel" type="text" placeholder="openrouter/owl-alpha" />
-          </label>
-          <label class="field">
-            <span>Telegram channel (public, no @)</span>
-            <input id="setChannel" type="text" placeholder="radarrussiia" />
-          </label>
-          <div class="field-row">
-            <label class="field">
-              <span>Poll interval (seconds)</span>
-              <input id="setInterval" type="number" min="20" step="10" />
-            </label>
-            <label class="field">
-              <span>Retention (hours)</span>
-              <input id="setRetention" type="number" min="1" step="1" />
-            </label>
-          </div>
-          <label class="checkbox">
-            <input id="setDemo" type="checkbox" />
-            <span>Demo mode (use bundled sample posts — no key/network needed)</span>
-          </label>
+        <div class="mgroup" id="grpOllama">
+          <div class="mrow"><label>Ollama URL</label><input id="setOllamaUrl" placeholder="http://127.0.0.1:11434" /></div>
+          <div class="mrow"><label>Model</label><input id="setOllamaModel" placeholder="translategemma:12b" /></div>
+          <div class="mrow"><label>Verify pass</label><input type="checkbox" id="setVerify" checked title="Second model pass that re-checks every extraction against the post" /></div>
         </div>
-        <div class="modal-foot">
-          <button id="btnClearData" class="btn btn-danger">Clear all sightings</button>
-          <span class="spacer"></span>
-          <button id="btnSaveSettings" class="btn btn-primary">Save</button>
+        <div class="mgroup" id="grpOpenrouter" style="display:none">
+          <div class="mrow"><label>API key</label><input id="setOrKey" type="password" placeholder="sk-or-…" /></div>
+          <div class="mrow"><label>Model</label><input id="setOrModel" placeholder="qwen/qwen3-next-80b-a3b-instruct:free" /></div>
+        </div>
+        <div class="mrow"><label>Channels</label><input id="setChannels" placeholder="radarrussiia,kpszsu,lpr1_treugolnik" /></div>
+        <div class="mrow"><label>Backfill hours</label><input id="setBackfill" type="number" min="1" max="168" /></div>
+        <div class="mrow"><label>Poll every (s)</label><input id="setPoll" type="number" min="30" max="3600" /></div>
+        <div class="mrow"><label>Demo mode</label><input type="checkbox" id="setDemo" /></div>
+        <div class="mtest" id="backendTestResult"></div>
+        <div class="mbtns">
+          <button class="btn" id="testBackendBtn">Test backend</button>
+          <span style="flex:1"></span>
+          <button class="btn" id="settingsCancel">Cancel</button>
+          <button class="btn primary" id="settingsSave">Save</button>
         </div>
       </div>
     </div>
 
     <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="vendor/html2canvas.min.js"></script>
     <script src="renderer.js"></script>
   </body>
 </html>
