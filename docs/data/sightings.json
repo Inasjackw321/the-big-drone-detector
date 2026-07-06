@@ -1,60 +1,6 @@
 {
   "sightings": [
     {
-      "id": "lpr1_treugolnik/239421:Нижняя Тавда",
-      "location": "Нижняя Тавда",
-      "locationRu": "Нижняя Тавда",
-      "region": "Тюменская область",
-      "lat": 57.6738992,
-      "lon": 66.1827373,
-      "geocodeSource": "nominatim",
-      "geocodePrecision": "point",
-      "matchedName": "Нижняя Тавда",
-      "threatType": "drone",
-      "count": null,
-      "heading": null,
-      "destination": null,
-      "destinationLat": null,
-      "destinationLon": null,
-      "bearing": null,
-      "status": "approaching",
-      "confidence": 0.55,
-      "postId": 239421,
-      "postLink": "https://t.me/lpr1_treugolnik/239421",
-      "postText": "Нижняя Тавда, Тюменская область, фиксации БПЛА в сторону ХМАО",
-      "postDate": "2026-07-06T10:04:15+00:00",
-      "summary": "Drone activity (approaching) at Нижняя Тавда",
-      "timestamp": "2026-07-06T10:04:15+00:00",
-      "channel": "lpr1_treugolnik"
-    },
-    {
-      "id": "lpr1_treugolnik/239422:Граково",
-      "location": "Граково",
-      "locationRu": "Граково",
-      "region": "",
-      "lat": 49.7292496,
-      "lon": 36.8657586,
-      "geocodeSource": "nominatim",
-      "geocodePrecision": "point",
-      "matchedName": "Hrakove",
-      "threatType": "drone",
-      "count": null,
-      "heading": null,
-      "destination": null,
-      "destinationLat": null,
-      "destinationLon": null,
-      "bearing": null,
-      "status": "alert",
-      "confidence": 0.55,
-      "postId": 239422,
-      "postLink": "https://t.me/lpr1_treugolnik/239422",
-      "postText": "Граково, терны Харьковская область РФ -\nДальний Валуйского района\nОпасность по БПЛА Хорнет",
-      "postDate": "2026-07-06T10:04:17+00:00",
-      "summary": "Drone activity (alert) at Граково, Дальний Валуйского района",
-      "timestamp": "2026-07-06T10:04:17+00:00",
-      "channel": "lpr1_treugolnik"
-    },
-    {
       "id": "lpr1_treugolnik/239424:Авдеевка",
       "location": "Авдеевка",
       "locationRu": "Авдеевка",
@@ -327,8 +273,8 @@
   ],
   "lastPostId": {
     "radarrussiia": 80147,
-    "kpszsu": 67530,
+    "kpszsu": 67532,
     "lpr1_treugolnik": 239444
   },
-  "updatedAt": "2026-07-06T11:02:56.961Z"
+  "updatedAt": "2026-07-06T11:04:57.765Z"
 }
