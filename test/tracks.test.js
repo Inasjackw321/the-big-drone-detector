@@ -107,10 +107,19 @@ test('region-centroid and alert/all_clear records are not track points', () => {
 
 test('threatClass groups missile variants together', () => {
   assert.equal(threatClass('drone'), 'drone');
+  assert.equal(threatClass('aircraft'), 'aircraft');
   assert.equal(threatClass('missile'), 'missile');
   assert.equal(threatClass('cruise_missile'), 'missile');
   assert.equal(threatClass('ballistic_missile'), 'missile');
   assert.equal(threatClass('explosion'), 'other');
+});
+
+test('drones and aircraft do not chain together', () => {
+  const tracks = buildTracks([
+    sig(45.0, 33.0, 0, { threatType: 'drone' }),
+    sig(45.3, 34.0, 20, { threatType: 'aircraft' }),
+  ]);
+  assert.equal(tracks.length, 0);
 });
 
 test('two parallel groups produce two tracks', () => {

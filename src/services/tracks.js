@@ -47,9 +47,10 @@ function angleDiff(a, b) {
   return d > 180 ? 360 - d : d;
 }
 
-// drones chain with drones, missiles (all kinds) with missiles.
+// drones chain with drones, aircraft with aircraft, missiles (all kinds) together.
 function threatClass(threatType) {
   if (threatType === 'drone') return 'drone';
+  if (threatType === 'aircraft') return 'aircraft';
   if (threatType === 'missile' || threatType === 'cruise_missile' || threatType === 'ballistic_missile') {
     return 'missile';
   }

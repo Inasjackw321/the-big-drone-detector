@@ -23,7 +23,7 @@ Return STRICT JSON only (no markdown, no commentary) matching this schema:
       "region": string,              // oblast/krai/republic in English, or ""
       "lat": number|null,            // your best-known latitude if you are confident, else null
       "lon": number|null,            // your best-known longitude if you are confident, else null
-      "threat_type": string,         // one of: "drone", "missile", "cruise_missile", "ballistic_missile", "explosion", "air_defense", "unknown"
+      "threat_type": string,         // one of: "drone", "aircraft", "missile", "cruise_missile", "ballistic_missile", "explosion", "air_defense", "unknown". Use "aircraft" for crewed jets/helicopters (авиация, самолёт, МиГ, Су, вертолёт, MiG-31/Kinzhal carriers).
       "count": number|null,          // number of objects if stated, else null
       "heading": string|null,        // compass direction of travel, normalized to one of: "north","north-east","east","south-east","south","south-west","west","north-west"; else null
       "destination": string|null,    // place/city the threat is moving TOWARD if stated (e.g. "Moscow" from "курс на Москву" / "в сторону Москвы" / "движется на"), else null
@@ -96,6 +96,7 @@ function extractJsonObject(text) {
 
 const THREAT_TYPES = new Set([
   'drone',
+  'aircraft',
   'missile',
   'cruise_missile',
   'ballistic_missile',

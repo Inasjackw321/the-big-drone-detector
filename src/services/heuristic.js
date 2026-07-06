@@ -25,6 +25,8 @@
 // Russian (бпла/дрон) and Ukrainian (бпла/шахед/мопед) drone wording.
 const DRONE_RE = /бпла|дрон|беспилотн|безпілотн|шахед|шахід|мопед|fpv/i;
 const MISSILE_RE = /ракет|крылат|крилат|баллист|балістич/i;
+// Crewed aircraft: jets, bombers, helicopters, named types.
+const AIRCRAFT_RE = /авиац|авіац|самол[еёо]т|літак|бомбардир|истребител|винищувач|штурмовик|вертол[еёі]т|гелікоптер|ми[гj]-?\s?\d|су-?\s?\d|ту-?\s?\d|kinzhal|кинжал|кинджал/i;
 const REGION_RE = /(област|край|краю|республик|округ|\bА[РP]\b)/i;
 
 // Lines that are channel boilerplate / contact footer, not content.
@@ -73,6 +75,7 @@ function detectDestination(text) {
 function detectThreatType(text) {
   // A drone reference wins even if a missile word also appears (mixed posts).
   if (DRONE_RE.test(text)) return 'drone';
+  if (AIRCRAFT_RE.test(text)) return 'aircraft';
   if (MISSILE_RE.test(text)) {
     if (/крылат|крилат/i.test(text)) return 'cruise_missile';
     if (/баллист|балістич/i.test(text)) return 'ballistic_missile';
@@ -149,7 +152,7 @@ function meaningfulLines(text) {
  */
 function analyzePost(text) {
   const out = { isRelevant: false, summary: '', sightings: [] };
-  if (!text || (!DRONE_RE.test(text) && !MISSILE_RE.test(text))) return out;
+  if (!text || (!DRONE_RE.test(text) && !MISSILE_RE.test(text) && !AIRCRAFT_RE.test(text))) return out;
   if (isInterceptionRecap(text)) return out; // a totals recap, not a sighting
 
   out.isRelevant = true;
@@ -204,7 +207,8 @@ function analyzePost(text) {
       confidence: 0.55,
     });
   }
-  out.summary = `${threatType === 'drone' ? 'Drone' : 'Missile'} activity (${status}) at ${locations.join(', ')}`.slice(0, 300);
+  const threatLabel = threatType === 'drone' ? 'Drone' : threatType === 'aircraft' ? 'Aircraft' : 'Missile';
+  out.summary = `${threatLabel} activity (${status}) at ${locations.join(', ')}`.slice(0, 300);
   return out;
 }
 

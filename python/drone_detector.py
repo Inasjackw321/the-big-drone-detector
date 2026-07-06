@@ -383,10 +383,16 @@ def fetch_channel(channel, before_id=None, timeout=15):
 # --------------------------------------------------------------------------- #
 DRONE_RE = re.compile(r"бпла|дрон|беспилотн|безпілотн|шахед|шахід|мопед|fpv", re.I)
 MISSILE_RE = re.compile(r"ракет|крылат|крилат|баллист|балістич", re.I)
+# Crewed aircraft: jets, bombers, helicopters, and named types (МиГ/Су/Ту).
+AIRCRAFT_RE = re.compile(
+    r"авиац|авіац|самол[еёо]т|літак|бомбардир|истребител|винищувач|штурмовик|"
+    r"вертол[еёі]т|гелікоптер|тактичн\w*\s*авіац|\bбортов|ми[гj]-?\s?\d|су-?\s?\d|ту-?\s?\d|"
+    r"\bmig-?\d|\bsu-?\d|kinzhal|кинжал|кинджал", re.I)
 # Any aerial-threat signal (threat type OR a threat status word). A post with
 # none of these can't be a mappable sighting, so we skip the LLM for it.
 THREAT_ANY_RE = re.compile(
     r"бпла|дрон|беспилотн|безпілотн|шахед|шахід|мопед|fpv|ракет|крылат|крилат|баллист|балістич|"
+    r"авиац|авіац|самол[еёо]т|літак|вертол[её]т|ми[гj]-?\d|су-?\d|ту-?\d|kinzhal|кинжал|"
     r"отбой|відбій|тревог|тривог|опасн|загроз|угроз|прил[её]т|приліт|вибух|влучан|пво|ппо", re.I)
 REGION_RE = re.compile(r"(област|край|краю|республик|округ|\bА[РP]\b)", re.I)
 FOOTER_RE = re.compile(r"(радар по всей|обход белых|@\w|https?:|t\.me|подписат|бот[аы]?\b)", re.I)
@@ -434,6 +440,8 @@ def detect_destination(text):
 def detect_threat_type(text):
     if DRONE_RE.search(text):
         return "drone"
+    if AIRCRAFT_RE.search(text):
+        return "aircraft"
     if MISSILE_RE.search(text):
         if re.search(r"крылат|крилат", text, re.I):
             return "cruise_missile"
@@ -481,7 +489,7 @@ def is_place_like(c):
 
 def analyze_post(text):
     out = {"isRelevant": False, "summary": "", "sightings": []}
-    if not text or (not DRONE_RE.search(text) and not MISSILE_RE.search(text)):
+    if not text or (not DRONE_RE.search(text) and not MISSILE_RE.search(text) and not AIRCRAFT_RE.search(text)):
         return out
     if is_interception_recap(text):
         return out
@@ -528,7 +536,8 @@ def analyze_post(text):
             "location": loc, "locationRu": loc, "region": region or "", "lat": None, "lon": None,
             "threatType": threat, "count": per_count, "heading": None, "destination": dest or None,
             "status": status, "confidence": 0.55})
-    out["summary"] = f"{'Drone' if threat == 'drone' else 'Missile'} activity ({status}) at {', '.join(locations)}"[:300]
+    label = {"drone": "Drone", "aircraft": "Aircraft"}.get(threat, "Missile")
+    out["summary"] = f"{label} activity ({status}) at {', '.join(locations)}"[:300]
     return out
 
 
@@ -545,6 +554,7 @@ Return STRICT JSON only matching the given schema.
 Rules:
 - If the post is not about an aerial threat (ads, chat, unrelated news), set is_relevant=false and sightings=[].
 - RECAP TOTALS: a Ministry-of-Defense-style summary of totals over a period (e.g. "over the past night air defense destroyed 216 UAVs over Belgorod, Bryansk, Kursk oblasts") is NOT a specific sighting -> is_relevant=false, sightings=[].
+- THREAT TYPE: drones/Shaheds/FPV -> "drone"; crewed aircraft (авиация/самолёт/літак/бомбардировщик/истребитель, helicopters вертолёт, and named jets МиГ/Су/Ту, MiG-31/Kinzhal carriers) -> "aircraft"; cruise missiles (крылатая/крилата) -> "cruise_missile"; ballistic (баллистическая/балістична) -> "ballistic_missile"; other missiles -> "missile".
 - NEVER use a sea, body of water, or whole country as a location. Only real settlements, raions, oblasts, or airbases.
 - Prefer the most specific place mentioned. If only a region is given, use the region as the location.
 - MOVEMENT: "destination" = the PLACE NAME the threat is moving toward (English), from "курс на X", "в сторону X", "в напрямку X". Prefer the ultimate major target (a city or oblast) over small waypoint villages. "heading" = compass direction ONLY, exactly one of: north, north-east, east, south-east, south, south-west, west, north-west; else null. Never put place names in heading.
@@ -575,7 +585,7 @@ SCHEMA = {
             "location": {"type": "string"}, "location_ru": {"type": "string"},
             "region": {"type": "string"}, "lat": {"type": ["number", "null"]},
             "lon": {"type": ["number", "null"]},
-            "threat_type": {"type": "string", "enum": ["drone", "missile", "cruise_missile",
+            "threat_type": {"type": "string", "enum": ["drone", "aircraft", "missile", "cruise_missile",
                             "ballistic_missile", "explosion", "air_defense", "unknown"]},
             "count": {"type": ["integer", "null"]},
             "heading": {"type": ["string", "null"], "enum": ["north", "north-east", "east",
@@ -589,7 +599,7 @@ SCHEMA = {
     "required": ["is_relevant", "summary", "sightings"],
 }
 
-THREAT_TYPES = {"drone", "missile", "cruise_missile", "ballistic_missile", "explosion", "air_defense", "unknown"}
+THREAT_TYPES = {"drone", "aircraft", "missile", "cruise_missile", "ballistic_missile", "explosion", "air_defense", "unknown"}
 STATUSES = {"approaching", "overhead", "shot_down", "impact", "alert", "all_clear", "unknown"}
 
 
@@ -829,6 +839,9 @@ def resolve_movement(sighting, geo, geocoder):
 
 # ---- track builder (port of tracks.js) ----
 TRACK_CFG = {"maxLegKm": 450, "maxGapMin": 100, "maxSpeedKmh": 500, "maxTurnDeg": 100, "minPointKm": 12}
+# Jets cover far more ground between reports than a Shahed, so allow longer
+# legs and higher speeds when chaining aircraft.
+CLASS_CAPS = {"aircraft": {"maxLegKm": 900, "maxSpeedKmh": 1800}}
 POSITION_STATUSES = {"approaching", "overhead", "unknown"}
 TERMINAL_STATUSES = {"shot_down", "impact"}
 
@@ -836,9 +849,33 @@ TERMINAL_STATUSES = {"shot_down", "impact"}
 def threat_class(t):
     if t == "drone":
         return "drone"
+    if t == "aircraft":
+        return "aircraft"
     if t in ("missile", "cruise_missile", "ballistic_missile"):
         return "missile"
     return "other"
+
+
+def track_code(first_time, first_loc):
+    """Stable 5-digit AO#<code> for a track (radar-style object id)."""
+    h = 2166136261
+    for ch in (str(first_time) + "|" + str(first_loc)):
+        h = ((h ^ ord(ch)) * 16777619) & 0xFFFFFFFF
+    return "AO#" + str(10000 + (h % 90000))
+
+
+def track_speed_kmh(points):
+    """Estimated speed over the last few legs (km/h), or None if unreliable."""
+    if len(points) < 2:
+        return None
+    recent = points[-4:]
+    dist = sum(haversine_km(recent[i - 1]["lat"], recent[i - 1]["lon"], recent[i]["lat"], recent[i]["lon"])
+               for i in range(1, len(recent)))
+    hrs = (recent[-1]["t"] - recent[0]["t"]) / 3600000
+    if hrs < 1 / 60:   # under a minute apart → timing too coarse to trust
+        return None
+    v = dist / hrs
+    return round(v) if 0 < v <= 3000 else None
 
 
 def angle_diff(a, b):
@@ -868,6 +905,9 @@ def build_tracks(sightings):
     tracks = []
     nid = 1
     for p in pts:
+        caps = CLASS_CAPS.get(p["cls"], TRACK_CFG)
+        max_leg = caps.get("maxLegKm", TRACK_CFG["maxLegKm"])
+        max_speed = caps.get("maxSpeedKmh", TRACK_CFG["maxSpeedKmh"])
         best, best_dist = None, float("inf")
         for trk in tracks:
             if trk["ended"] or trk["cls"] != p["cls"]:
@@ -877,10 +917,10 @@ def build_tracks(sightings):
             if dt < 0 or dt > TRACK_CFG["maxGapMin"]:
                 continue
             d = haversine_km(last["lat"], last["lon"], p["lat"], p["lon"])
-            if d > TRACK_CFG["maxLegKm"]:
+            if d > max_leg:
                 continue
             if d >= TRACK_CFG["minPointKm"]:
-                if dt > 2 and (d / (dt / 60)) > TRACK_CFG["maxSpeedKmh"]:
+                if dt > 2 and (d / (dt / 60)) > max_speed:
                     continue
                 if len(trk["points"]) >= 2:
                     prev = trk["points"][-2]
@@ -912,6 +952,8 @@ def build_tracks(sightings):
                                 t["points"][i]["lat"], t["points"][i]["lon"])
                    for i in range(1, len(t["points"])))
         out.append({"id": t["id"], "threatClass": t["cls"],
+                    "code": track_code(t["points"][0]["time"], t["points"][0]["location"]),
+                    "speedKmh": track_speed_kmh(t["points"]),
                     "points": [{"lat": round(p["lat"], 4), "lon": round(p["lon"], 4), "time": p["time"],
                                 "location": p["location"], "status": p["status"], "count": p["count"]}
                                for p in t["points"]],

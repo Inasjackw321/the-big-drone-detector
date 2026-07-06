@@ -6,7 +6,8 @@
 // tracks and a history timeline. Polls every few seconds.
 
 const THREAT = {
-  drone: { label: 'Drone / UAV', sym: '✈' }, missile: { label: 'Missile', sym: '▲' },
+  drone: { label: 'Drone / UAV', sym: '✈' }, aircraft: { label: 'Aircraft / Jet', sym: '✈' },
+  missile: { label: 'Missile', sym: '▲' },
   cruise_missile: { label: 'Cruise missile', sym: '▲' }, ballistic_missile: { label: 'Ballistic missile', sym: '▲' },
   air_defense: { label: 'Air defense', sym: '◆' }, explosion: { label: 'Explosion', sym: '✸' }, unknown: { label: 'Unknown', sym: '●' },
 };
@@ -18,9 +19,11 @@ const STATUS_INFO = {
 };
 function statusInfo(s) { return STATUS_INFO[s && s.status] || STATUS_INFO.unknown; }
 const CHANNEL_COLORS = { radarrussiia: '#ff5c5c', kpszsu: '#4fb6ff', lpr1_treugolnik: '#ff9f3d' };
-const TRACK_COLORS = { drone: '#ff4fd8', missile: '#ffb03d', other: '#8aa8c8' };
+const TRACK_COLORS = { drone: '#ff4fd8', aircraft: '#8fd6ff', missile: '#ffb03d', other: '#8aa8c8' };
 const DISPLAY_WINDOW_MS = 90 * 60 * 1000;
 const TRACK_KEEP_MS = 4 * 3600 * 1000;
+const TRAIL_POINTS = 10; // radar tail: show only the last N positions, so the
+                         // line advances and the oldest point drops as it moves
 
 const state = {
   sightings: [], tracks: [], filter: 'all', hasAutoZoomed: false,
@@ -62,15 +65,23 @@ function consolidateByLocation(list) { const groups = new Map(); for (const s of
 function sightingsAsOf(asOf) { const lo = asOf - DISPLAY_WINDOW_MS; const w = state.sightings.filter((s) => { if (typeof s.lat !== 'number' || typeof s.lon !== 'number') return false; const t = Date.parse(s.timestamp || '') || 0; return t > 0 && t <= asOf && t >= lo; }).filter((s) => typeof s.confidence !== 'number' || s.confidence >= 0.3); return consolidateByLocation(supersedeWithAllClears(w)); }
 function tracksAsOf(asOf) { const out = []; for (const t of state.tracks) { const pts = (t.points || []).filter((p) => (Date.parse(p.time) || 0) <= asOf); if (pts.length < 2) continue; const last = Date.parse(pts[pts.length - 1].time) || 0; if (asOf - last > TRACK_KEEP_MS) continue; out.push(Object.assign({}, t, { points: pts, lastSeen: pts[pts.length - 1].time, ended: t.ended && pts.length === t.points.length })); } return out; }
 
-function matchesFilter(s) { switch (state.filter) { case 'danger': return statusInfo(s).level >= 3; case 'inbound': return s.status === 'approaching' || s.status === 'overhead'; case 'cleared': return s.status === 'all_clear' || s.status === 'shot_down'; case 'drone': return s.threatType === 'drone'; case 'missile': return ['missile','cruise_missile','ballistic_missile'].includes(s.threatType); default: return true; } }
-function trackMatchesFilter(t) { if (state.filter === 'drone') return t.threatClass === 'drone'; if (state.filter === 'missile') return t.threatClass === 'missile'; return true; }
+function matchesFilter(s) { switch (state.filter) { case 'danger': return statusInfo(s).level >= 3; case 'inbound': return s.status === 'approaching' || s.status === 'overhead'; case 'cleared': return s.status === 'all_clear' || s.status === 'shot_down'; case 'drone': return s.threatType === 'drone'; case 'aircraft': return s.threatType === 'aircraft'; case 'missile': return ['missile','cruise_missile','ballistic_missile'].includes(s.threatType); default: return true; } }
+function trackMatchesFilter(t) { if (state.filter === 'drone') return t.threatClass === 'drone'; if (state.filter === 'aircraft') return t.threatClass === 'aircraft'; if (state.filter === 'missile') return t.threatClass === 'missile'; return true; }
 
 // ---- glyphs ----
 function droneGlyph(cx, cy, color, s) { const a = 4.8 * s, rr = 3 * s, sw = 1.6 * s; let arms = '', rot = ''; for (const [dx, dy] of [[-a,-a],[a,-a],[-a,a],[a,a]]) { arms += `<line x1="${cx}" y1="${cy}" x2="${cx+dx}" y2="${cy+dy}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`; rot += `<circle class="rotor" cx="${cx+dx}" cy="${cy+dy}" r="${rr}" fill="#0d1b2a" stroke="${color}" stroke-width="${1.3*s}"/>`; } return arms + rot + `<circle cx="${cx}" cy="${cy}" r="${2.6*s}" fill="${color}"/>`; }
 function missileGlyph(cx, cy, color, s) { const h = 7.5 * s; return `<polygon points="${cx},${cy-h} ${cx-h*0.55},${cy+h*0.7} ${cx+h*0.55},${cy+h*0.7}" fill="#0d1b2a" stroke="${color}" stroke-width="${1.7*s}" stroke-linejoin="round"/><polygon points="${cx},${cy-h} ${cx-h*0.28},${cy} ${cx+h*0.28},${cy}" fill="${color}"/>`; }
 function genericGlyph(cx, cy, color, sym, s) { const r = 7.5 * s; return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2*s}"/><text x="${cx}" y="${cy+3.6*s}" text-anchor="middle" font-family="Arial" font-size="${10.5*s}" font-weight="bold" fill="${color}">${sym}</text>`; }
 function clearGlyph(cx, cy, color, s) { const r = 7.5 * s; return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2*s}"/><path d="M${cx-3.6*s},${cy+0.3*s} L${cx-1*s},${cy+3*s} L${cx+3.8*s},${cy-3*s}" fill="none" stroke="${color}" stroke-width="${2*s}" stroke-linecap="round" stroke-linejoin="round"/>`; }
-function threatGlyph(type, cx, cy, color, s) { if (type === 'drone') return droneGlyph(cx, cy, color, s); if (['missile','cruise_missile','ballistic_missile'].includes(type)) return missileGlyph(cx, cy, color, s); return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s); }
+// Swept-wing jet: an arrowhead body with two back-swept wings.
+function jetGlyph(cx, cy, color, s) {
+  const k = s;
+  return `<polygon points="${cx},${cy-8*k} ${cx-1.6*k},${cy+5*k} ${cx+1.6*k},${cy+5*k}" fill="${color}"/>` +
+    `<polygon points="${cx},${cy-1*k} ${cx-7*k},${cy+5*k} ${cx-1.4*k},${cy+3*k}" fill="${color}"/>` +
+    `<polygon points="${cx},${cy-1*k} ${cx+7*k},${cy+5*k} ${cx+1.4*k},${cy+3*k}" fill="${color}"/>` +
+    `<polygon points="${cx},${cy+3*k} ${cx-3*k},${cy+7*k} ${cx+3*k},${cy+7*k}" fill="${color}"/>`;
+}
+function threatGlyph(type, cx, cy, color, s) { if (type === 'drone') return droneGlyph(cx, cy, color, s); if (type === 'aircraft') return jetGlyph(cx, cy, color, s); if (['missile','cruise_missile','ballistic_missile'].includes(type)) return missileGlyph(cx, cy, color, s); return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s); }
 function buildIcon(s) {
   const info = statusInfo(s), color = info.color, bearing = confidentBearing(s);
   const isWarn = info.warn, isDanger = info.level >= 3, count = Math.max(1, s.count || 1);
@@ -182,17 +193,55 @@ function renderMarkers(sightings) {
   }
   if (!state.hasAutoZoomed && pts.length) { const ap = toShow.filter((s) => statusInfo(s).warn).map((s) => [s.lat, s.lon]); map.fitBounds(ap.length ? ap : pts, { padding: [80, 80], maxZoom: 9 }); state.hasAutoZoomed = true; }
 }
-function trackTooltip(t) { const from = t.points[0], to = t.points[t.points.length - 1], kind = t.threatClass === 'missile' ? 'Missile' : 'Drone'; const span = `${fmtUTC(t.firstSeen).replace(' UTC','')} → ${fmtUTC(t.lastSeen)}`; return `<b>${kind} track</b> · ${t.points.length} waypoints · ~${t.distanceKm} km<br>${esc(from.location || '?')} → ${esc(to.location || '?')}${t.ended ? ' · <b style="color:#4fb6ff">ended</b>' : ''}<br><span style="color:#8ab0d0">${span}</span>`; }
+function kindOf(cls) { return cls === 'missile' ? 'Missile' : cls === 'aircraft' ? 'Aircraft' : 'Drone'; }
+function trackTooltip(t) {
+  const from = t.points[0], to = t.points[t.points.length - 1];
+  const span = `${fmtUTC(t.firstSeen).replace(' UTC','')} → ${fmtUTC(t.lastSeen)}`;
+  const spd = typeof t.speedKmh === 'number' ? ` · ${t.speedKmh} km/h` : '';
+  return `<b>${esc(t.code || kindOf(t.threatClass) + ' track')}</b> · ${kindOf(t.threatClass)}${spd}<br>` +
+    `${t.points.length} waypoints · ~${t.distanceKm} km<br>${esc(from.location || '?')} → ${esc(to.location || '?')}` +
+    `${t.ended ? ' · <b style="color:#4fb6ff">ended</b>' : ''}<br><span style="color:#8ab0d0">${span}</span>`;
+}
+// Radar-style head label: object id + speed, under the arrowhead.
+function trackHeadLabel(t, color) {
+  const spd = typeof t.speedKmh === 'number' ? `<div class="tl-spd">${t.speedKmh} km/h</div>` : '';
+  return L.divIcon({ className: 'trk-label', iconSize: null, iconAnchor: [-8, -6],
+    html: `<div class="tl-id" style="color:${color}">${esc(t.code || '')}</div>${spd}` });
+}
 function renderTracks(tracks) {
-  tracksLayer.clearLayers(); const asOf = currentAsOf();
+  tracksLayer.clearLayers();
+  const asOf = currentAsOf();
   for (const t of tracks) {
     if (!trackMatchesFilter(t)) continue;
-    const ll = t.points.map((p) => [p.lat, p.lon]), color = TRACK_COLORS[t.threatClass] || TRACK_COLORS.other;
-    const ageH = Math.max(0, (asOf - (Date.parse(t.lastSeen) || asOf)) / 3600000), alpha = Math.max(0.14, 0.9 - ageH * 0.075);
-    const glow = L.polyline(ll, { color, weight: 9, opacity: alpha * 0.16 }).addTo(tracksLayer); glow.bindTooltip(trackTooltip(t), { sticky: true, className: 'trk-tip', opacity: 1 });
-    L.polyline(ll, { color, weight: 1.7, opacity: alpha, interactive: false }).addTo(tracksLayer);
-    for (const p of t.points) L.circleMarker([p.lat, p.lon], { radius: 2.1, color, fillColor: color, fillOpacity: alpha, opacity: alpha, weight: 1, interactive: false }).addTo(tracksLayer);
-    if (!t.ended && ageH < 2 && ll.length >= 2) { const a = ll[ll.length - 2], b = ll[ll.length - 1]; L.marker(b, { icon: arrowheadIcon(bearingTo(a[0], a[1], b[0], b[1]), color), interactive: false, keyboard: false, opacity: Math.min(1, alpha + 0.15) }).addTo(tracksLayer); }
+    // Radar tail: only the last N positions — as new points arrive the head
+    // advances and the oldest point drops off the tail.
+    const pts = t.points.slice(-TRAIL_POINTS);
+    if (pts.length < 2) continue;
+    const ll = pts.map((p) => [p.lat, p.lon]);
+    const color = TRACK_COLORS[t.threatClass] || TRACK_COLORS.other;
+    const ageH = Math.max(0, (asOf - (Date.parse(pts[pts.length - 1].time) || asOf)) / 3600000);
+    const headAlpha = Math.max(0.2, 0.95 - ageH * 0.07);
+
+    // Wide invisible line carries the hover tooltip.
+    L.polyline(ll, { color, weight: 9, opacity: headAlpha * 0.14 }).addTo(tracksLayer)
+      .bindTooltip(trackTooltip(t), { sticky: true, className: 'trk-tip', opacity: 1 });
+
+    // Fading trail: each segment brightens toward the head so the tail
+    // dissolves behind the moving object.
+    const n = ll.length;
+    for (let i = 1; i < n; i++) {
+      const frac = i / (n - 1);
+      L.polyline([ll[i - 1], ll[i]], { color, weight: 1.2 + 1.4 * frac, opacity: headAlpha * (0.12 + 0.88 * frac), interactive: false }).addTo(tracksLayer);
+    }
+    for (let i = 0; i < n; i++) {
+      const frac = i / (n - 1);
+      L.circleMarker(ll[i], { radius: 1.5 + frac * 1.3, color, fillColor: color, fillOpacity: headAlpha * (0.15 + 0.85 * frac), weight: 0, opacity: 0, interactive: false }).addTo(tracksLayer);
+    }
+
+    // Arrowhead + id/speed label at the head.
+    const a = ll[n - 2], b = ll[n - 1], brg = bearingTo(a[0], a[1], b[0], b[1]);
+    L.marker(b, { icon: arrowheadIcon(brg, color), interactive: false, keyboard: false, opacity: headAlpha }).addTo(tracksLayer);
+    if (t.code) L.marker(b, { icon: trackHeadLabel(t, color), interactive: false, keyboard: false, opacity: headAlpha }).addTo(tracksLayer);
   }
 }
 function renderWarnings(sightings) {

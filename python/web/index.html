@@ -114,6 +114,10 @@
       .place-label span { font-size: 11px; font-weight: 700; white-space: nowrap; padding: 1px 6px; border-radius: 5px; background: rgba(8,15,24,0.62); border: 1px solid rgba(255,255,255,0.06); text-shadow: 0 1px 2px rgba(0,0,0,0.9); }
       .trk-tip { background: rgba(13,27,42,0.94) !important; color: #e0eaf5 !important; border: 1px solid #2d4a6a !important; border-radius: 8px !important; font-size: 12px; }
       .trk-tip::before { display: none !important; }
+      /* radar object label at the track head (AO#nnnnn / speed) */
+      .trk-label { background: none !important; border: none !important; box-shadow: none !important; }
+      .trk-label .tl-id { font-size: 10.5px; font-weight: 700; letter-spacing: 0.4px; line-height: 1.1; text-shadow: 0 1px 3px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.95); white-space: nowrap; }
+      .trk-label .tl-spd { font-size: 10px; font-weight: 600; color: #d7e6f5; line-height: 1.1; text-shadow: 0 1px 3px rgba(0,0,0,0.95),0 0 2px rgba(0,0,0,0.95); white-space: nowrap; }
       .leaflet-control-zoom a { background: #1a2d42 !important; color: #cde0f5 !important; border-color: #2d4a6a !important; }
       .leaflet-control-attribution { background: rgba(13,27,42,0.7) !important; color: #8aa8c8 !important; }
       .leaflet-top { top: 48px; }
@@ -153,6 +157,7 @@
         <button class="chip" data-filter="inbound">Inbound</button>
         <button class="chip" data-filter="cleared">Cleared</button>
         <button class="chip" data-filter="drone">Drones</button>
+        <button class="chip" data-filter="aircraft">✈ Jets</button>
         <button class="chip" data-filter="missile">Missiles</button>
       </div>
       <div class="chip-row" id="layerBar">
@@ -172,8 +177,9 @@
       <div class="lrow"><span class="ldot" style="background:#ffb03d"></span> Overhead</div>
       <div class="lrow"><span class="ldot" style="background:#4fb6ff"></span> Intercepted</div>
       <div class="lrow"><span class="ldot" style="background:#3fd87f"></span> All clear</div>
-      <div class="lrow"><span class="lline"></span> Flight track</div>
-      <div class="lsub">✈ drones · ×N = count · → heading<br />shaded circle = area under danger</div>
+      <div class="lrow"><span class="lline" style="border-top-color:#ff4fd8;box-shadow:0 0 4px #ff4fd8"></span> Drone track</div>
+      <div class="lrow"><span class="lline" style="border-top-color:#8fd6ff;box-shadow:0 0 4px #8fd6ff"></span> Aircraft / jet</div>
+      <div class="lsub">AO#id · km/h shown at track head<br />→ heading · shaded circle = area under danger</div>
     </div>
 
     <div class="timeline" id="timeline">
