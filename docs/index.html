@@ -62,7 +62,7 @@
 
       /* warnings panel */
       .warn-panel {
-        position: absolute; top: 56px; left: 12px; z-index: 1000; width: 244px;
+        position: absolute; top: 110px; left: 12px; z-index: 1000; width: 244px;
         max-height: 62vh; display: none; overflow: hidden;
         background: rgba(13,27,42,0.92); border: 1px solid #2d4a6a; border-radius: 12px;
         box-shadow: 0 4px 18px rgba(0,0,0,0.5); backdrop-filter: blur(6px);
@@ -163,6 +163,8 @@
       body.export-skin .exp-legend,
       body.export-skin .exp-warns { display: flex; }
       body.export-skin .exp-mark { display: block; }
+      /* the big clock owns the top-left corner in exports — meta sits below it */
+      body.export-skin .exp-meta { top: 100px; }
 
       /* translucent "chips" — quiet, edge-tucked, not full bars */
       .exp-meta {
@@ -211,11 +213,14 @@
       .exp-warns .er b { color: #eaf1f8; font-weight: 600; }
       .exp-warns .eq { padding: 8px 12px; color: #8ea7bf; font-size: 11px; }
 
-      /* ---- filter bar ---- */
-      .filter-bar {
+      /* ---- filter + layer chips (stacked, top-right) ---- */
+      .ctrl-col {
         position: absolute; top: 52px; right: 12px; z-index: 1001;
-        display: flex; gap: 5px; flex-wrap: wrap; max-width: 310px; justify-content: flex-end;
+        display: flex; flex-direction: column; gap: 6px; align-items: flex-end;
         font-family: -apple-system,"Segoe UI",Arial,sans-serif;
+      }
+      .filter-bar, .layer-bar {
+        display: flex; gap: 5px; flex-wrap: wrap; max-width: 340px; justify-content: flex-end;
       }
       .filter-chip {
         cursor: pointer; background: rgba(13,27,42,0.88); color: #8ab0d0;
@@ -226,7 +231,42 @@
       }
       .filter-chip:hover { background: #1a2d42; color: #cde0f5; }
       .filter-chip.active { background: #243f5e; color: #fff; border-color: #5aafff; }
-      body.export-skin .filter-bar { display: none !important; }
+      .layer-bar .filter-chip.active { background: #1e3a2d; border-color: #3fd87f; color: #d9ffe9; }
+      body.export-skin .ctrl-col { display: none !important; }
+
+      /* ---- big timestamp overlay (top-left, like a radar console) ---- */
+      .clock {
+        position: absolute; top: 10px; left: 12px; z-index: 1000;
+        font-family: "Segoe UI", Roboto, Arial, sans-serif; color: #fff;
+        text-shadow: 0 2px 8px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.9);
+        line-height: 1.05; pointer-events: none; user-select: none;
+      }
+      .clock .cd { font-size: 30px; font-weight: 700; letter-spacing: 1px; }
+      .clock .ct { font-size: 30px; font-weight: 700; letter-spacing: 2px; color: #e8f2ff; }
+      .clock .cz { font-size: 11px; color: #8ab0d0; letter-spacing: 2px; margin-top: 2px; }
+      body.export-skin .clock { display: block !important; }
+
+      /* place-name labels (toggleable, like console city callouts) */
+      .place-label {
+        background: none !important; border: none !important; box-shadow: none !important;
+        padding: 0 !important;
+      }
+      .place-label::before { display: none !important; }
+      .place-label span {
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif; font-size: 11px;
+        font-weight: 700; letter-spacing: 0.3px;
+        text-shadow: 0 1px 3px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.95);
+        white-space: nowrap;
+      }
+
+      /* track hover tooltip */
+      .trk-tip {
+        background: rgba(13,27,42,0.94) !important; color: #e0eaf5 !important;
+        border: 1px solid #2d4a6a !important; border-radius: 8px !important;
+        box-shadow: 0 3px 14px rgba(0,0,0,0.6) !important;
+        font-family: -apple-system,"Segoe UI",Arial,sans-serif; font-size: 12px;
+      }
+      .trk-tip::before { display: none !important; }
     </style>
   </head>
   <body>
@@ -250,13 +290,28 @@
       <button class="dl-btn" id="dlBtn" title="Pick an area, then download it as a PNG">⬇ Download area</button>
     </div>
 
-    <div class="filter-bar" id="filterBar">
-      <button class="filter-chip active" data-filter="all">All</button>
-      <button class="filter-chip" data-filter="danger">Danger</button>
-      <button class="filter-chip" data-filter="inbound">Inbound</button>
-      <button class="filter-chip" data-filter="cleared">Cleared</button>
-      <button class="filter-chip" data-filter="drone">Drones</button>
-      <button class="filter-chip" data-filter="missile">Missiles</button>
+    <div class="ctrl-col">
+      <div class="filter-bar" id="filterBar">
+        <button class="filter-chip active" data-filter="all">All</button>
+        <button class="filter-chip" data-filter="danger">Danger</button>
+        <button class="filter-chip" data-filter="inbound">Inbound</button>
+        <button class="filter-chip" data-filter="cleared">Cleared</button>
+        <button class="filter-chip" data-filter="drone">Drones</button>
+        <button class="filter-chip" data-filter="missile">Missiles</button>
+      </div>
+      <div class="layer-bar" id="layerBar">
+        <button class="filter-chip" data-layer="tracks">〰 Tracks</button>
+        <button class="filter-chip" data-layer="zones">◎ Zones</button>
+        <button class="filter-chip" data-layer="lines">➤ Vectors</button>
+        <button class="filter-chip" data-layer="labels">Aa Labels</button>
+        <button class="filter-chip" data-layer="clock">🕐 Clock</button>
+      </div>
+    </div>
+
+    <div class="clock" id="clock" style="display:none">
+      <div class="cd" id="clockDate"></div>
+      <div class="ct" id="clockTime"></div>
+      <div class="cz">UTC · LIVE</div>
     </div>
 
     <!-- subtle export chrome, only visible while exporting an area -->
@@ -268,6 +323,7 @@
       <span><i style="background:#ffb03d"></i>Overhead</span>
       <span><i style="background:#4fb6ff"></i>Intercepted</span>
       <span><i style="background:#3fd87f"></i>All clear</span>
+      <span><i style="background:#ff4fd8;border-radius:0;height:2px;width:14px"></i>Track</span>
       <span>→ heading · shaded = danger</span>
     </div>
     <div class="exp-mark">@Kaldockhi</div>
@@ -279,6 +335,7 @@
       <div class="lrow"><span class="ldot" style="background:#ffb03d"></span> Overhead</div>
       <div class="lrow"><span class="ldot" style="background:#4fb6ff"></span> Intercepted</div>
       <div class="lrow"><span class="ldot" style="background:#3fd87f"></span> All clear</div>
+      <div class="lrow"><span style="display:inline-block;width:16px;height:0;border-top:2px solid #ff4fd8;box-shadow:0 0 4px #ff4fd8"></span> Flight track (12h)</div>
       <div class="lsub">✈ drones &nbsp;·&nbsp; ×N = count &nbsp;·&nbsp; → heading<br>shaded circle = area under danger</div>
     </div>
 
@@ -788,10 +845,46 @@
         document.head.appendChild(style);
       });
 
-      const layer = L.layerGroup().addTo(map);
+      // Named layer groups so each visual element can be toggled on its own.
+      // Add order = draw order on the canvas: tracks under zones under vectors;
+      // markers/labels are DOM elements and always sit above the canvas.
+      const tracksLayer = L.layerGroup().addTo(map); // flight-path polylines
+      const zonesLayer = L.layerGroup().addTo(map);  // danger circles + uncertainty rings
+      const routeLayer = L.layerGroup().addTo(map);  // destination lines + projections
+      const markersLayer = L.layerGroup().addTo(map);
+      const labelsLayer = L.layerGroup().addTo(map); // place-name callouts
       // Separate layer for the measure tool so it survives data reloads and is
       // captured into the exported area image.
       const measureLayer = L.layerGroup().addTo(map);
+
+      // ---- layer visibility toggles (persisted) ----
+      const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, lines: routeLayer, labels: labelsLayer };
+      const layerState = (() => {
+        const def = { tracks: true, zones: true, lines: true, labels: false, clock: true };
+        try { return Object.assign(def, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); }
+        catch { return def; }
+      })();
+      function applyLayerToggles() {
+        for (const [key, grp] of Object.entries(LAYER_GROUPS)) {
+          if (layerState[key]) { if (!map.hasLayer(grp)) map.addLayer(grp); }
+          else if (map.hasLayer(grp)) map.removeLayer(grp);
+        }
+        document.getElementById('clock').style.display = layerState.clock ? 'block' : 'none';
+        document.querySelectorAll('#layerBar .filter-chip').forEach((b) =>
+          b.classList.toggle('active', !!layerState[b.dataset.layer]));
+      }
+
+      // ---- big UTC clock ----
+      function tickClock() {
+        const d = new Date();
+        const p = (n) => String(n).padStart(2, '0');
+        document.getElementById('clockDate').textContent =
+          `${d.getUTCFullYear()}-${p(d.getUTCMonth() + 1)}-${p(d.getUTCDate())}`;
+        document.getElementById('clockTime').textContent =
+          `${p(d.getUTCHours())}:${p(d.getUTCMinutes())}:${p(d.getUTCSeconds())}`;
+      }
+      tickClock();
+      setInterval(tickClock, 1000);
 
       // Render the whole view (map tiles, markers, warning areas, legend,
       // warnings panel) to a PNG and download it.
@@ -1204,7 +1297,10 @@
       // Render filtered sightings onto the map layer. Separated from load() so
       // the filter chips can re-render without re-fetching data.
       function renderMap(sightings) {
-        layer.clearLayers();
+        zonesLayer.clearLayers();
+        routeLayer.clearLayers();
+        markersLayer.clearLayers();
+        labelsLayer.clearLayers();
         const toShow = sightings.filter(matchesFilter);
         const pts = [];
 
@@ -1217,13 +1313,13 @@
             L.circle([s.lat, s.lon], {
               radius: 45000, color, fillColor: color,
               fillOpacity: 0.045, weight: 1, opacity: 0.28, dashArray: '5 5',
-            }).addTo(layer);
+            }).addTo(zonesLayer);
           } else if (s.geocodePrecision === 'region') {
             // Approximate (region-centroid) placement → uncertainty ring.
             L.circle([s.lat, s.lon], {
               radius: 30000, color: '#6f93b4',
               weight: 1, opacity: 0.25, fill: false, dashArray: '3 6',
-            }).addTo(layer);
+            }).addTo(zonesLayer);
           }
 
           const dest = confidentDest(s);
@@ -1234,10 +1330,10 @@
             const lineBearing = bearingTo(s.lat, s.lon, dest.lat, dest.lon);
             L.polyline([[s.lat, s.lon], lineEnd], {
               color, weight: 2.5, opacity: 0.55, dashArray: '7 6',
-            }).addTo(layer);
+            }).addTo(routeLayer);
             L.marker(lineEnd, {
               icon: arrowheadIcon(lineBearing, color), interactive: false, keyboard: false,
-            }).addTo(layer);
+            }).addTo(routeLayer);
             pts.push(lineEnd);
           } else if (bearing !== null && info.warn) {
             // Trajectory projection: faint dashed line showing probable heading
@@ -1245,11 +1341,11 @@
             const projEnd = projectPoint(s.lat, s.lon, bearing, 200);
             L.polyline([[s.lat, s.lon], projEnd], {
               color, weight: 1.5, opacity: 0.25, dashArray: '3 10',
-            }).addTo(layer);
+            }).addTo(routeLayer);
             L.marker(projEnd, {
               icon: arrowheadIcon(bearing, color),
               interactive: false, keyboard: false, opacity: 0.35,
-            }).addTo(layer);
+            }).addTo(routeLayer);
           }
 
           // Fade with age: full opacity for ≤10 min, easing to 0.5 by 60 min.
@@ -1257,8 +1353,17 @@
           const opacity = ageMin <= 10 ? 1 : Math.max(0.5, 1 - (ageMin - 10) / 100);
           L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity })
             .bindPopup(popupHtml(s), { maxWidth: 280 })
-            .addTo(layer);
+            .addTo(markersLayer);
           pts.push([s.lat, s.lon]);
+
+          // Console-style place callout, colored by status (Labels toggle).
+          L.tooltip({
+            permanent: true, direction: 'bottom', className: 'place-label',
+            offset: [0, 14], interactive: false,
+          })
+            .setContent(`<span style="color:${color}">${esc(s.location)}</span>`)
+            .setLatLng([s.lat, s.lon])
+            .addTo(labelsLayer);
         }
 
         // Auto-zoom to active threats on first load only — don't re-zoom on refresh.
@@ -1269,6 +1374,75 @@
         }
 
         renderWarnings(sightings); // always show all warnings regardless of active filter
+      }
+
+      // ---- flight tracks: correlated waypoint chains from data/tracks.json ----
+      const TRACK_COLORS = { drone: '#ff4fd8', missile: '#ffb03d', other: '#8aa8c8' };
+      let currentTracks = [];
+
+      function trackMatchesFilter(t) {
+        if (activeFilter === 'drone') return t.threatClass === 'drone';
+        if (activeFilter === 'missile') return t.threatClass === 'missile';
+        return true; // status-based filters don't apply to whole tracks
+      }
+
+      function trackTooltip(t) {
+        const from = t.points[0], to = t.points[t.points.length - 1];
+        const kind = t.threatClass === 'missile' ? 'Missile' : 'Drone';
+        const span = `${fmtUTC(t.firstSeen).replace(' UTC','')} → ${fmtUTC(t.lastSeen)}`;
+        return `<b>${kind} track</b> · ${t.points.length} waypoints · ~${t.distanceKm} km` +
+          `<br>${esc(from.location || '?')} → ${esc(to.location || '?')}` +
+          `${t.ended ? ' · <b style="color:#4fb6ff">ended</b>' : ''}<br><span style="color:#8ab0d0">${span}</span>`;
+      }
+
+      function renderTracks() {
+        tracksLayer.clearLayers();
+        const now = Date.now();
+        for (const t of currentTracks) {
+          if (!trackMatchesFilter(t)) continue;
+          const latlngs = t.points.map((p) => [p.lat, p.lon]);
+          const color = TRACK_COLORS[t.threatClass] || TRACK_COLORS.other;
+          // Recent tracks glow bright; older ones fade toward the background.
+          const ageH = Math.max(0, (now - (Date.parse(t.lastSeen) || now)) / 3600000);
+          const alpha = Math.max(0.14, 0.9 - ageH * 0.075);
+
+          // Glow underlay + crisp line on top = the "radar console" look.
+          // The wide glow is the hover target so the tooltip is easy to hit.
+          const glow = L.polyline(latlngs, {
+            color, weight: 9, opacity: alpha * 0.16,
+          }).addTo(tracksLayer);
+          glow.bindTooltip(trackTooltip(t), { sticky: true, className: 'trk-tip', opacity: 1 });
+          L.polyline(latlngs, {
+            color, weight: 1.7, opacity: alpha, interactive: false,
+          }).addTo(tracksLayer);
+
+          // Waypoint dots.
+          for (const p of t.points) {
+            L.circleMarker([p.lat, p.lon], {
+              radius: 2.1, color, fillColor: color, fillOpacity: alpha,
+              opacity: alpha, weight: 1, interactive: false,
+            }).addTo(tracksLayer);
+          }
+
+          // Arrowhead on the live end of an active track (recent + not ended).
+          if (!t.ended && ageH < 2 && latlngs.length >= 2) {
+            const a = latlngs[latlngs.length - 2], b = latlngs[latlngs.length - 1];
+            L.marker(b, {
+              icon: arrowheadIcon(bearingTo(a[0], a[1], b[0], b[1]), color),
+              interactive: false, keyboard: false, opacity: Math.min(1, alpha + 0.15),
+            }).addTo(tracksLayer);
+          }
+        }
+      }
+
+      async function loadTracks() {
+        try {
+          const res = await fetch('data/tracks.json?t=' + Date.now());
+          if (!res.ok) return; // no tracks yet — fine
+          const data = await res.json();
+          currentTracks = Array.isArray(data.tracks) ? data.tracks : [];
+          renderTracks();
+        } catch { /* tracks are an enhancement — never break the map */ }
       }
 
       async function load() {
@@ -1344,16 +1518,30 @@
       }
 
       // Wire up filter chips — re-render without re-fetching.
-      document.querySelectorAll('.filter-chip').forEach((btn) => {
+      document.querySelectorAll('#filterBar .filter-chip').forEach((btn) => {
         btn.addEventListener('click', () => {
           activeFilter = btn.dataset.filter;
-          document.querySelectorAll('.filter-chip').forEach((b) => b.classList.toggle('active', b === btn));
+          document.querySelectorAll('#filterBar .filter-chip').forEach((b) => b.classList.toggle('active', b === btn));
           renderMap(currentSightings);
+          renderTracks();
         });
       });
 
+      // Layer toggle chips — flip visibility, remember the choice.
+      document.querySelectorAll('#layerBar .filter-chip').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const key = btn.dataset.layer;
+          layerState[key] = !layerState[key];
+          try { localStorage.setItem('ddx-layers', JSON.stringify(layerState)); } catch {}
+          applyLayerToggles();
+        });
+      });
+      applyLayerToggles();
+
       load();
+      loadTracks();
       setInterval(load, 2 * 60 * 1000);
+      setInterval(loadTracks, 2 * 60 * 1000);
     </script>
   </body>
 </html>
