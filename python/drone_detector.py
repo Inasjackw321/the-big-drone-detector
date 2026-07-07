@@ -195,6 +195,44 @@ def heading_to_bearing(heading):
     return None
 
 
+# A location named as a district/raion/oblast is an AREA, not a point — mark it
+# region-precision so the map shades it as a zone instead of a false pinpoint.
+AREA_NAME_RE = re.compile(r"\b(district|raion|region|oblast|krai)\b|район|область|облас|краю?\b|окру", re.I)
+
+
+def is_area_name(name):
+    return bool(name and AREA_NAME_RE.search(name))
+
+
+# Extra offline anchors so common Kuban/Crimea places and airbase towns geocode
+# precisely without hitting the network (better, faster geolocation). Only fills
+# gaps — existing gazetteer entries win.
+EXTRA_PLACES = [
+    {"name": "Primorsko-Akhtarsk", "ru": "Приморско-Ахтарск", "lat": 46.051, "lon": 38.171, "region": "Krasnodar Krai"},
+    {"name": "Slavyansk-na-Kubani", "ru": "Славянск-на-Кубани", "lat": 45.261, "lon": 38.126, "region": "Krasnodar Krai"},
+    {"name": "Krymsk", "ru": "Крымск", "lat": 44.934, "lon": 37.982, "region": "Krasnodar Krai"},
+    {"name": "Temryuk", "ru": "Темрюк", "lat": 45.276, "lon": 37.386, "region": "Krasnodar Krai"},
+    {"name": "Anapa", "ru": "Анапа", "lat": 44.894, "lon": 37.316, "region": "Krasnodar Krai"},
+    {"name": "Novorossiysk", "ru": "Новороссийск", "lat": 44.724, "lon": 37.768, "region": "Krasnodar Krai"},
+    {"name": "Taman", "ru": "Тамань", "lat": 45.213, "lon": 36.712, "region": "Krasnodar Krai"},
+    {"name": "Yeysk", "ru": "Ейск", "lat": 46.711, "lon": 38.277, "region": "Krasnodar Krai"},
+    {"name": "Kushchyovskaya", "ru": "Кущёвская", "aliases": ["Kushchevskaya"], "lat": 46.556, "lon": 39.635, "region": "Krasnodar Krai"},
+    {"name": "Bryukhovetskaya", "ru": "Брюховецкая", "lat": 45.797, "lon": 38.990, "region": "Krasnodar Krai"},
+    {"name": "Poltavskaya", "ru": "Полтавская", "lat": 45.351, "lon": 38.160, "region": "Krasnodar Krai"},
+    {"name": "Akhtanizovskaya", "ru": "Ахтанизовская", "lat": 45.322, "lon": 37.101, "region": "Krasnodar Krai"},
+    {"name": "Kropotkin", "ru": "Кропоткин", "lat": 45.434, "lon": 40.575, "region": "Krasnodar Krai"},
+    {"name": "Tikhoretsk", "ru": "Тихорецк", "lat": 45.856, "lon": 40.126, "region": "Krasnodar Krai"},
+    {"name": "Armavir", "ru": "Армавир", "lat": 44.999, "lon": 41.123, "region": "Krasnodar Krai"},
+    {"name": "Engels", "ru": "Энгельс", "lat": 51.498, "lon": 46.125, "region": "Saratov Oblast"},
+    {"name": "Morozovsk", "ru": "Морозовск", "lat": 48.352, "lon": 41.827, "region": "Rostov Oblast"},
+    {"name": "Millerovo", "ru": "Миллерово", "lat": 48.923, "lon": 40.394, "region": "Rostov Oblast"},
+    {"name": "Taganrog", "ru": "Таганрог", "lat": 47.209, "lon": 38.935, "region": "Rostov Oblast"},
+    {"name": "Dzhankoi", "ru": "Джанкой", "aliases": ["Dzhankoy"], "lat": 45.708, "lon": 34.393, "region": "Crimea"},
+    {"name": "Saky", "ru": "Саки", "lat": 45.135, "lon": 33.599, "region": "Crimea"},
+    {"name": "Gvardeyskoye", "ru": "Гвардейское", "lat": 45.111, "lon": 33.977, "region": "Crimea"},
+]
+
+
 # --------------------------------------------------------------------------- #
 # Offline geocoder (gazetteer + optional Nominatim), thread-safe
 # --------------------------------------------------------------------------- #
@@ -234,7 +272,7 @@ class Geocoder:
         except Exception as e:
             log(f"gazetteer load failed: {e}")
             return
-        for p in data.get("places", []):
+        for p in list(data.get("places", [])) + EXTRA_PLACES:
             entry = {"name": p["name"], "region": p.get("region", ""),
                      "lat": p["lat"], "lon": p["lon"], "source": "gazetteer"}
             keys = {normalize_key(p["name"]), normalize_key(p.get("ru", ""))}
@@ -324,10 +362,13 @@ class Geocoder:
 
         result = None
         if hit:
+            # A district/raion/oblast name is an area → region precision, so the
+            # map shades it as a zone rather than pretending to a single point.
+            area = hit["source"] == "gazetteer-region" or is_area_name(loc) or is_area_name(hit.get("name"))
             result = {"lat": hit["lat"], "lon": hit["lon"], "source": hit["source"],
                       "matchedName": hit.get("name") or loc,
                       "region": hit.get("region") or region,
-                      "precision": "region" if hit["source"] == "gazetteer-region" else "point"}
+                      "precision": "region" if area else "point"}
         with self._lock:
             self.cache[cache_key] = result
         return result

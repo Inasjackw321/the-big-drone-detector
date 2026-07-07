@@ -63,9 +63,17 @@ Ollama instead).
 - **Timeline** (bottom): drag to scrub through history, or press ▶ to replay.
   Markers and tracks are trimmed to the moment you're viewing; **● LIVE** snaps
   back to now.
+- **Markers**: a report of *N* drones is drawn as an actual formation of up to
+  three drone glyphs (with an exact ×N badge), each **facing its heading** and
+  gently drifting that way, so a glance shows how many and which direction.
+- **Warnings shade the region** they affect as a diagonally **hatched area**
+  (bigger for an oblast, smaller for a town), with a dashed boundary — the way
+  an air-raid alert map shades affected regions — instead of just a dot.
+- **Tracks** trail the object's **last known location** as a fading comet tail
+  (labelled `AO#id · km/h · age`); separate markers are never wired together.
 - **Filters**: All / Danger / Inbound / Cleared / Drones / Missiles.
-- **Layers**: Tracks / Zones / Vectors / Labels / Clock (remembered between
-  sessions).
+- **Layers**: Tracks / Zones / **Bases** (known airbases) / Labels / Clock
+  (remembered between sessions).
 - **🌐 Translate**: click *Translate* in any post popup to render the
   Russian/Ukrainian text in English (translated on-device by the same Ollama
   model, cached). Toggle the **🌐 Translate** chip to auto-translate every
@@ -73,8 +81,9 @@ Ollama instead).
   those popups open instantly.
 - **⬇ Export**: click Export, then drag a rectangle to save that area of the
   map as a clean PNG (with the clock, a region/time header and a legend).
-- **🎬 Video**: records a **timelapse of everything since the app started** —
-  it replays the accumulated history and saves a WebM you can share.
+- **🎬 Video**: records a smooth **timelapse of everything since the app
+  started** — it eases through the accumulated history at 24 fps with a
+  burned-in title, time span and progress bar, and saves a WebM you can share.
 - Click a warning to fly to it; hover a track for its object id, speed, route
   and time span; click a marker for the source post.
 
@@ -94,6 +103,9 @@ Ollama instead).
 - Deterministic heuristic backfill, region-bounds sanity checks (a town >450 km
   from its oblast is rejected as the wrong namesake), destination-echo removal,
   recap-total stripping, all-clear supersession and confidence gating.
+- **Honest precision** — a district/raion/oblast name is treated as an *area*
+  (drawn as a hatched zone), not a false pinpoint, and a built-in set of
+  Kuban/Crimea places and airbase towns geocodes offline for speed + accuracy.
 
 ## Configuration (environment variables)
 

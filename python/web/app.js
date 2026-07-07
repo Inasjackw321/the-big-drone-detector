@@ -31,7 +31,7 @@ const TRAIL_POINTS = 60;                    // show the full winding path, not a
 
 const state = {
   sightings: [], tracks: [], filter: 'all', hasAutoZoomed: false,
-  layers: (() => { const d = { tracks: true, zones: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
+  layers: (() => { const d = { tracks: true, zones: true, bases: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
   timeline: { live: true, asOf: Date.now(), playing: false, speed: 300 },
   autoTranslate: (() => { try { return localStorage.getItem('ddx-translate') === '1'; } catch { return false; } })(),
 };
@@ -87,7 +87,27 @@ function matchesFilter(s) { switch (state.filter) { case 'danger': return status
 function trackMatchesFilter(t) { if (state.filter === 'drone') return t.threatClass === 'drone'; if (state.filter === 'aircraft') return t.threatClass === 'aircraft'; if (state.filter === 'missile') return t.threatClass === 'missile'; return true; }
 
 // ---- glyphs ----
-function droneGlyph(cx, cy, color, s) { const a = 4.8 * s, rr = 3 * s, sw = 1.6 * s; let arms = '', rot = ''; for (const [dx, dy] of [[-a,-a],[a,-a],[-a,a],[a,a]]) { arms += `<line x1="${cx}" y1="${cy}" x2="${cx+dx}" y2="${cy+dy}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`; rot += `<circle class="rotor" cx="${cx+dx}" cy="${cy+dy}" r="${rr}" fill="#0d1b2a" stroke="${color}" stroke-width="${1.3*s}"/>`; } return arms + rot + `<circle cx="${cx}" cy="${cy}" r="${2.6*s}" fill="${color}"/>`; }
+// Top-down quadcopter with a clear nose (points up = bearing 0) so it can be
+// rotated to face its heading, and spinning rotors so it reads as "in flight".
+function droneGlyph(cx, cy, color, s) {
+  const a = 5.0 * s, rr = 2.9 * s, sw = 1.5 * s, dark = '#0a1622';
+  let arms = '', rotors = '';
+  for (const [dx, dy] of [[-a,-a],[a,-a],[-a,a],[a,a]]) {
+    arms += `<line x1="${cx}" y1="${cy}" x2="${cx+dx}" y2="${cy+dy}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`;
+    rotors += `<circle class="rotor" cx="${cx+dx}" cy="${cy+dy}" r="${rr}" fill="${dark}" stroke="${color}" stroke-width="${1.2*s}"/>`
+      + `<circle cx="${cx+dx}" cy="${cy+dy}" r="${0.8*s}" fill="${color}"/>`;
+  }
+  // fuselage: a nose-up hull, with a bright tip marking the front.
+  const body = `<path d="M ${cx} ${cy-4.4*s} L ${cx+2.7*s} ${cy+2.9*s} L ${cx-2.7*s} ${cy+2.9*s} Z" fill="${dark}" stroke="${color}" stroke-width="${1.3*s}" stroke-linejoin="round"/>`;
+  const nose = `<circle cx="${cx}" cy="${cy-4.4*s}" r="${1.4*s}" fill="${color}"/>`;
+  return arms + rotors + body + nose;
+}
+// Formation offsets (local frame, nose up) for count → up to 3 drone glyphs.
+function droneFormation(n) {
+  if (n <= 1) return [[0, 0]];
+  if (n === 2) return [[-5.5, 2.5], [5.5, 2.5]];
+  return [[0, -5.5], [-6.5, 4], [6.5, 4]]; // lead + two wingmen
+}
 function missileGlyph(cx, cy, color, s) { const h = 7.5 * s; return `<polygon points="${cx},${cy-h} ${cx-h*0.55},${cy+h*0.7} ${cx+h*0.55},${cy+h*0.7}" fill="#0d1b2a" stroke="${color}" stroke-width="${1.7*s}" stroke-linejoin="round"/><polygon points="${cx},${cy-h} ${cx-h*0.28},${cy} ${cx+h*0.28},${cy}" fill="${color}"/>`; }
 function genericGlyph(cx, cy, color, sym, s) { const r = 7.5 * s; return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2*s}"/><text x="${cx}" y="${cy+3.6*s}" text-anchor="middle" font-family="Arial" font-size="${10.5*s}" font-weight="bold" fill="${color}">${sym}</text>`; }
 function clearGlyph(cx, cy, color, s) { const r = 7.5 * s; return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2*s}"/><path d="M${cx-3.6*s},${cy+0.3*s} L${cx-1*s},${cy+3*s} L${cx+3.8*s},${cy-3*s}" fill="none" stroke="${color}" stroke-width="${2*s}" stroke-linecap="round" stroke-linejoin="round"/>`; }
@@ -100,31 +120,118 @@ function jetGlyph(cx, cy, color, s) {
     `<polygon points="${cx},${cy+3*k} ${cx-3*k},${cy+7*k} ${cx+3*k},${cy+7*k}" fill="${color}"/>`;
 }
 function threatGlyph(type, cx, cy, color, s) { if (type === 'drone') return droneGlyph(cx, cy, color, s); if (type === 'aircraft') return jetGlyph(cx, cy, color, s); if (['missile','cruise_missile','ballistic_missile'].includes(type)) return missileGlyph(cx, cy, color, s); return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s); }
+const ORIENTABLE = new Set(['drone', 'aircraft', 'missile', 'cruise_missile', 'ballistic_missile']);
 function buildIcon(s) {
-  // Markers carry no direction arrow — only the flight tracks show heading.
   const info = statusInfo(s), color = info.color;
   const isWarn = info.warn, isDanger = info.level >= 3, count = Math.max(1, s.count || 1);
   // Danger markers are noticeably bigger so warnings pop out at a glance.
-  const scale = isDanger ? 1.5 : isWarn ? 1.22 : 1.05, gR = 7.8 * scale;
+  const scale = isDanger ? 1.45 : isWarn ? 1.2 : 1.05;
+  const isClear = s.status === 'all_clear';
+  const brg = isClear ? null : resolveBearing(s);
+  const orient = brg !== null && ORIENTABLE.has(s.threatType);
+  // A count of drones is shown as an actual formation of up to 3 drone glyphs,
+  // not one icon with a number — plus the exact ×N badge for the true total.
+  const isDrone = s.threatType === 'drone';
+  const nGlyph = isDrone ? Math.min(count, 3) : 1;
+  const offs = droneFormation(nGlyph);
+  const gscale = scale * (nGlyph > 1 ? 0.82 : 1);
+  const maxOff = Math.max(0, ...offs.map(([x, y]) => Math.hypot(x, y)));
+  const gExtent = (maxOff + 8.5) * scale;                 // covers glyph(s) at any rotation
+  const pulseR = gExtent * 0.8;
+  const ringExtent = isDanger ? gExtent + 8 : gExtent + 2;
   const showCount = count > 1, label = '×' + count;
-  const labelW = showCount ? label.length * 7 + 12 : 0, gap = 6, half = showCount ? 10 : 0;
-  const ringR = isDanger ? gR + 7 : gR, m = 5;
-  const lp = Math.max(ringR, 0), tp = Math.max(ringR, half), bp = Math.max(ringR, half), rp = Math.max(ringR, gR + gap + labelW);
-  const Gx = lp + m, Gy = tp + m, W = Math.ceil(lp + rp + 2 * m), H = Math.ceil(tp + bp + 2 * m);
-  const glyph = s.status === 'all_clear' ? clearGlyph(Gx, Gy, color, scale) : threatGlyph(s.threatType, Gx, Gy, color, scale);
-  const pulse = isWarn ? `<circle class="pulse" cx="${Gx}" cy="${Gy}" r="${gR}" fill="${color}"/>` : '';
+  const labelW = showCount ? label.length * 7 + 12 : 0, gap = 4, m = 4;
+  const leftExt = ringExtent, topExt = ringExtent, botExt = ringExtent;
+  const rightExt = Math.max(ringExtent, gExtent + gap + labelW);
+  const Gx = leftExt + m, Gy = topExt + m;
+  const W = Math.ceil(leftExt + rightExt + 2 * m), H = Math.ceil(topExt + botExt + 2 * m);
+
+  let glyphs = '';
+  if (isClear) glyphs = clearGlyph(Gx, Gy, color, scale);
+  else for (const [dx, dy] of offs) glyphs += threatGlyph(s.threatType, Gx + dx * scale, Gy + dy * scale, color, gscale);
+  const oriented = orient ? `<g transform="rotate(${brg.toFixed(1)} ${Gx} ${Gy})">${glyphs}</g>` : glyphs;
+
+  const pulse = isWarn ? `<circle class="pulse" cx="${Gx}" cy="${Gy}" r="${pulseR}" fill="${color}"/>` : '';
   // Danger: a bright solid ring + a big expanding alert halo so it's unmissable.
   const ring = isDanger
-    ? `<circle cx="${Gx}" cy="${Gy}" r="${gR + 4}" fill="none" stroke="${color}" stroke-width="2" opacity="0.9"/>` +
-      `<circle class="pulse-alert" cx="${Gx}" cy="${Gy}" r="${gR + 6}" fill="none" stroke="${color}" stroke-width="2.5" opacity="0.9"/>`
+    ? `<circle cx="${Gx}" cy="${Gy}" r="${gExtent + 2}" fill="none" stroke="${color}" stroke-width="2" opacity="0.9"/>` +
+      `<circle class="pulse-alert" cx="${Gx}" cy="${Gy}" r="${gExtent + 4}" fill="none" stroke="${color}" stroke-width="2.5" opacity="0.9"/>`
     : '';
   let badge = '';
-  if (showCount) { const bx = Gx + gR + gap; badge = `<rect x="${bx}" y="${Gy-9}" width="${labelW}" height="18" rx="9" fill="#0d1b2a" stroke="${color}" stroke-width="1.5"/><text x="${bx+labelW/2}" y="${Gy+4}" text-anchor="middle" font-family="Arial" font-size="12.5" font-weight="bold" fill="${color}">${label}</text>`; }
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${ring}${pulse}${glyph}${badge}</svg>`;
-  return L.divIcon({ className: 'threat-icon', html: svg, iconSize: [W, H], iconAnchor: [Gx, Gy], popupAnchor: [0, -(tp + 2)] });
+  if (showCount) { const bx = Gx + gExtent + gap; badge = `<rect x="${bx}" y="${Gy-9}" width="${labelW}" height="18" rx="9" fill="#0d1b2a" stroke="${color}" stroke-width="1.5"/><text x="${bx+labelW/2}" y="${Gy+4}" text-anchor="middle" font-family="Arial" font-size="12.5" font-weight="bold" fill="${color}">${label}</text>`; }
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}">${ring}${pulse}${oriented}${badge}</svg>`;
+
+  // Moving objects gently drift along their heading, so a glance shows which way
+  // each one is going (paired with the nose-forward orientation above).
+  const moving = orient && (s.status === 'approaching' || s.status === 'overhead');
+  if (moving) {
+    const rad = brg * Math.PI / 180, A = 3.2;
+    const mx = (Math.sin(rad) * A).toFixed(1), my = (-Math.cos(rad) * A).toFixed(1);
+    const html = `<div class="mvwrap" style="--mx:${mx}px;--my:${my}px">${svg}</div>`;
+    return L.divIcon({ className: 'threat-icon moving', html, iconSize: [W, H], iconAnchor: [Gx, Gy], popupAnchor: [0, -(topExt + 2)] });
+  }
+  return L.divIcon({ className: 'threat-icon', html: svg, iconSize: [W, H], iconAnchor: [Gx, Gy], popupAnchor: [0, -(topExt + 2)] });
 }
 // Small chevron at the track head — a subtle direction pip, not a big arrow.
 function arrowheadIcon(bearing, color) { const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><g transform="rotate(${bearing} 7 7)"><polygon points="7,1.5 3.2,10 7,7.6 10.8,10" fill="${color}" stroke="#0a1622" stroke-width="0.8"/></g></svg>`; return L.divIcon({ className: 'arrow-icon', html: svg, iconSize: [14, 14], iconAnchor: [7, 7] }); }
+
+// ---- hatched affected-region zones ----
+// Warnings shade the whole area under threat as a diagonally-hatched patch (like
+// an air-raid alert map) so the affected region is discernible at a glance, not
+// just a point. Rendered as an SVG overlay so the hatch pattern survives even
+// though the vector layers draw to canvas.
+let hatchUid = 0;
+function svgFromString(str) { const d = document.createElement('div'); d.innerHTML = str.trim(); return d.querySelector('svg'); }
+function addHatchZone(s, color, level) {
+  const rk = s.geocodePrecision === 'region' ? 62 : level >= 3 ? 30 : 22; // affected radius (km)
+  const dLat = rk / 111, dLon = rk / (111 * Math.cos(s.lat * Math.PI / 180));
+  const bounds = L.latLngBounds([s.lat - dLat, s.lon - dLon], [s.lat + dLat, s.lon + dLon]);
+  const uid = 'hz' + (hatchUid++), fillOp = level >= 3 ? 0.5 : 0.34, gap = level >= 3 ? 6 : 8;
+  const svg = svgFromString(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">` +
+    `<defs><pattern id="${uid}" width="${gap}" height="${gap}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
+    `<line x1="0" y1="0" x2="0" y2="${gap}" stroke="${color}" stroke-width="2.3"/></pattern></defs>` +
+    `<ellipse cx="50" cy="50" rx="48" ry="48" fill="url(#${uid})" fill-opacity="${fillOp}" ` +
+    `stroke="${color}" stroke-opacity="0.8" stroke-width="1.3" stroke-dasharray="5 4"/></svg>`);
+  L.svgOverlay(svg, bounds, { interactive: false, className: 'zone-hatch' }).addTo(zonesLayer);
+  if (level >= 3) L.circleMarker([s.lat, s.lon], { radius: 4, color, fillColor: color, fillOpacity: 0.95, weight: 1, opacity: 0.9 }).addTo(zonesLayer);
+}
+
+// ---- airbase reference layer ----
+// Known military airfields near the theatre. A reference layer so it's easy to
+// see which strikes/overflights sit near a base. (name, lat, lon)
+const AIRBASES = [
+  { name: 'Engels-2', lat: 51.480, lon: 46.194 }, { name: 'Morozovsk', lat: 48.309, lon: 41.790 },
+  { name: 'Millerovo', lat: 48.949, lon: 40.300 }, { name: 'Kushchyovskaya', lat: 46.546, lon: 39.605 },
+  { name: 'Primorsko-Akhtarsk', lat: 46.051, lon: 38.150 }, { name: 'Yeysk', lat: 46.680, lon: 38.211 },
+  { name: 'Krymsk', lat: 44.962, lon: 37.990 }, { name: 'Marinovka', lat: 48.640, lon: 44.060 },
+  { name: 'Baltimor (Voronezh)', lat: 51.622, lon: 39.180 }, { name: 'Buturlinovka', lat: 50.792, lon: 40.598 },
+  { name: 'Taganrog-Tsentralny', lat: 47.198, lon: 38.849 }, { name: 'Rostov-on-Don', lat: 47.258, lon: 39.818 },
+  { name: 'Shaykovka', lat: 54.232, lon: 34.370 }, { name: 'Dyagilevo (Ryazan)', lat: 54.643, lon: 39.580 },
+  { name: 'Savasleyka', lat: 55.459, lon: 42.330 }, { name: 'Akhtubinsk', lat: 48.306, lon: 46.240 },
+  { name: 'Borisoglebsk', lat: 51.366, lon: 42.090 }, { name: 'Voronezh-Baltimor', lat: 51.620, lon: 39.220 },
+  { name: 'Saky (Novofedorivka)', lat: 45.093, lon: 33.599 }, { name: 'Belbek', lat: 44.691, lon: 33.573 },
+  { name: 'Gvardeyskoye', lat: 45.111, lon: 33.977 }, { name: 'Dzhankoi', lat: 45.708, lon: 34.418 },
+  { name: 'Kacha', lat: 44.775, lon: 33.586 },
+];
+function airbaseIcon() {
+  const c = '#93b7d8', dark = '#0b1826';
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">` +
+    `<circle cx="11" cy="11" r="9" fill="${dark}" stroke="${c}" stroke-width="1.5" opacity="0.96"/>` +
+    jetGlyph(11, 12, c, 0.86) + `</svg>`;
+  return L.divIcon({ className: 'base-icon', html: svg, iconSize: [22, 22], iconAnchor: [11, 11] });
+}
+function renderBases() {
+  basesLayer.clearLayers();
+  const showLabels = map.getZoom() >= 7;
+  for (const b of AIRBASES) {
+    L.marker([b.lat, b.lon], { icon: airbaseIcon(), keyboard: false, zIndexOffset: -600 })
+      .bindTooltip(`✈ ${esc(b.name)} airbase`, { direction: 'top', className: 'base-tip', offset: [0, -8] })
+      .addTo(basesLayer);
+    if (showLabels) L.tooltip({ permanent: true, direction: 'right', className: 'base-label', offset: [11, 0], interactive: false })
+      .setContent(esc(b.name)).setLatLng([b.lat, b.lon]).addTo(basesLayer);
+  }
+}
 
 function popupHtml(s) {
   const t = THREAT[s.threatType] || THREAT.unknown, info = statusInfo(s);
@@ -191,29 +298,48 @@ function wirePopupTranslate(popup) {
 // ---- map ----
 const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.5, 42.0], 5);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, crossOrigin: 'anonymous', attribution: '© OpenStreetMap © CARTO' }).addTo(map);
-const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
-const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, labels: labelsLayer };
+const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), basesLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
+const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, bases: basesLayer, labels: labelsLayer };
 function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
 map.on('popupopen', (e) => wirePopupTranslate(e.popup));
+map.on('zoomend', () => { if (state.layers.bases) renderBases(); });
 
 function currentAsOf() { return state.timeline.live ? Date.now() : state.timeline.asOf; }
-function renderAll() { const asOf = currentAsOf(); const sightings = sightingsAsOf(asOf); renderMarkers(sightings); renderTracks(tracksAsOf(asOf)); renderWarnings(sightings); updateHeader(sightings); updateClock(); }
+function renderAll() {
+  const asOf = currentAsOf();
+  const sightings = sightingsAsOf(asOf);
+  const tracks = tracksAsOf(asOf).filter(trackMatchesFilter);
+  renderTracks(tracks);
+  renderMarkers(sightings, tracks);
+  renderBases();
+  renderWarnings(sightings);
+  updateHeader(sightings);
+  updateClock();
+}
 
-function renderMarkers(sightings) {
+// Ages a status colour toward transparent by how long ago it was reported, so
+// stale positions visibly recede — freshness is a first-class signal.
+function ageOpacity(ageMin) { return ageMin <= 8 ? 1 : Math.max(0.4, 1 - (ageMin - 8) / 90); }
+
+function renderMarkers(sightings, tracks) {
   zonesLayer.clearLayers(); markersLayer.clearLayers(); labelsLayer.clearLayers();
   const asOf = currentAsOf(), toShow = sightings.filter(matchesFilter), pts = [];
+  // A track already draws a trailing tail from the object's last known location,
+  // so DON'T also drop a full marker on every past waypoint — that is what made
+  // it look like separate drones wired together. Suppress markers that sit on a
+  // track's tail (everything except its head); the head keeps its icon.
+  const tailPts = [];
+  if (state.layers.tracks) for (const t of tracks) { const p = t.points; for (let i = 0; i < p.length - 1; i++) tailPts.push(p[i]); }
+  const onTail = (s) => tailPts.some((p) => haversineKm(s.lat, s.lon, p.lat, p.lon) < 2.5);
   for (const s of toShow) {
+    if (onTail(s)) continue;
     const info = statusInfo(s), color = info.color;
-    if (info.level >= 3) {
-      // Prominent danger zone: bright outer ring + a filled inner core.
-      L.circle([s.lat, s.lon], { radius: 40000, color, fillColor: color, fillOpacity: 0.10, weight: 2, opacity: 0.6 }).addTo(zonesLayer);
-      L.circle([s.lat, s.lon], { radius: 16000, color, fillColor: color, fillOpacity: 0.20, weight: 0 }).addTo(zonesLayer);
-    } else if (s.geocodePrecision === 'region') {
-      L.circle([s.lat, s.lon], { radius: 30000, color: '#6f93b4', weight: 1, opacity: 0.25, fill: false, dashArray: '3 6' }).addTo(zonesLayer);
-    }
-    // No destination arrows/vectors — flight tracks are the only direction cue.
-    const ageMin = (asOf - (Date.parse(s.timestamp || '') || asOf)) / 60000, opacity = ageMin <= 10 ? 1 : Math.max(0.5, 1 - (ageMin - 10) / 100);
-    const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
+    // Warnings shade the whole affected region as a discernible hatched area;
+    // lesser region-level reports get a faint dashed footprint.
+    if (info.warn) addHatchZone(s, color, info.level);
+    else if (s.geocodePrecision === 'region') L.circle([s.lat, s.lon], { radius: 30000, color: '#6f93b4', weight: 1, opacity: 0.25, fill: false, dashArray: '3 6' }).addTo(zonesLayer);
+    const ageMin = (asOf - (Date.parse(s.timestamp || '') || asOf)) / 60000, opacity = ageOpacity(ageMin);
+    const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity, zIndexOffset: info.level * 100 }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
     mk._s = s; // let the popup-open handler reach this sighting for translation
     pts.push([s.lat, s.lon]);
     L.tooltip({ permanent: true, direction: 'bottom', className: 'place-label', offset: [0, 14], interactive: false }).setContent(`<span style="color:${color}">${esc(s.location)}</span>`).setLatLng([s.lat, s.lon]).addTo(labelsLayer);
@@ -229,12 +355,17 @@ function trackTooltip(t) {
     `${t.points.length} waypoints · ~${t.distanceKm} km<br>${esc(from.location || '?')} → ${esc(to.location || '?')}` +
     `${t.ended ? ' · <b style="color:#4fb6ff">ended</b>' : ''}<br><span style="color:#8ab0d0">${span}</span>`;
 }
-// Radar-style head label: object id + speed, under the arrowhead.
-function trackHeadLabel(t, color) {
-  const spd = typeof t.speedKmh === 'number' ? `<div class="tl-spd">${t.speedKmh} km/h</div>` : '';
+// Radar-style head label: object id + speed + how long since last reported.
+function trackHeadLabel(t, color, ageMin) {
+  const spd = typeof t.speedKmh === 'number' ? `${t.speedKmh} km/h` : '';
+  const age = ageMin < 1 ? 'now' : ageMin < 60 ? `${Math.round(ageMin)}m ago` : `${Math.round(ageMin / 60)}h ago`;
+  const sub = [spd, age].filter(Boolean).join(' · ');
   return L.divIcon({ className: 'trk-label', iconSize: null, iconAnchor: [-8, -6],
-    html: `<div class="tl-id" style="color:${color}">${esc(t.code || '')}</div>${spd}` });
+    html: `<div class="tl-id" style="color:${color}">${esc(t.code || '')}</div>${sub ? `<div class="tl-spd">${esc(sub)}</div>` : ''}` });
 }
+// A track is drawn as a comet TAIL trailing the object's last known location —
+// brightest at the head, fading to nothing behind it — never a bright line
+// wiring separate markers together. Older tracks fade as a whole (freshness).
 function renderTracks(tracks) {
   tracksLayer.clearLayers();
   const asOf = currentAsOf();
@@ -244,29 +375,27 @@ function renderTracks(tracks) {
     if (pts.length < 2) continue;
     const ll = pts.map((p) => [p.lat, p.lon]);
     const color = TRACK_COLORS[t.threatClass] || TRACK_COLORS.other;
-    const ageH = Math.max(0, (asOf - (Date.parse(pts[pts.length - 1].time) || asOf)) / 3600000);
-    const headAlpha = Math.max(0.35, 0.95 - ageH * 0.09);
+    const ageMin = Math.max(0, (asOf - (Date.parse(pts[pts.length - 1].time) || asOf)) / 60000);
+    const headAlpha = Math.max(0.28, 1 - ageMin / 75); // whole tail dims with age
+    const n = ll.length;
 
-    // Soft glow under the whole path + the hover tooltip target.
-    L.polyline(ll, { color, weight: 6, opacity: headAlpha * 0.18 }).addTo(tracksLayer)
+    // Invisible fat hit-line for the hover tooltip (whole path).
+    L.polyline(ll, { color, weight: 10, opacity: 0, interactive: true }).addTo(tracksLayer)
       .bindTooltip(trackTooltip(t), { sticky: true, className: 'trk-tip', opacity: 1 });
 
-    // The full winding path stays clearly visible; it only brightens gently
-    // toward the head (radar-console look), never fading to nothing.
-    const n = ll.length;
+    // Comet tail: transparent at the oldest end, bright at the head. A soft glow
+    // underlay only near the head sells the "trail behind it" look.
     for (let i = 1; i < n; i++) {
-      const frac = i / (n - 1);
-      L.polyline([ll[i - 1], ll[i]], { color, weight: 1.6 + 1.0 * frac, opacity: headAlpha * (0.55 + 0.45 * frac), interactive: false }).addTo(tracksLayer);
-    }
-    // Small waypoint dots so each reported position is legible.
-    for (let i = 0; i < n; i++) {
-      L.circleMarker(ll[i], { radius: 1.6, color, fillColor: color, fillOpacity: headAlpha * 0.9, weight: 0, opacity: 0, interactive: false }).addTo(tracksLayer);
+      const frac = i / (n - 1);                 // 0 = tail, 1 = head
+      const op = headAlpha * (0.05 + 0.75 * frac * frac);
+      L.polyline([ll[i - 1], ll[i]], { color, weight: 1 + 3 * frac, opacity: op, lineCap: 'round', interactive: false }).addTo(tracksLayer);
+      if (frac > 0.55) L.polyline([ll[i - 1], ll[i]], { color, weight: 5 + 4 * frac, opacity: op * 0.18, lineCap: 'round', interactive: false }).addTo(tracksLayer);
     }
 
-    // Arrowhead + id/speed label at the current head.
+    // Arrowhead + id/speed/age label at the current head (last known location).
     const a = ll[n - 2], b = ll[n - 1], brg = bearingTo(a[0], a[1], b[0], b[1]);
-    L.marker(b, { icon: arrowheadIcon(brg, color), interactive: false, keyboard: false, opacity: headAlpha }).addTo(tracksLayer);
-    if (t.code) L.marker(b, { icon: trackHeadLabel(t, color), interactive: false, keyboard: false, opacity: Math.min(1, headAlpha + 0.1) }).addTo(tracksLayer);
+    L.marker(b, { icon: arrowheadIcon(brg, color), interactive: false, keyboard: false, opacity: Math.min(1, headAlpha + 0.15) }).addTo(tracksLayer);
+    if (t.code) L.marker(b, { icon: trackHeadLabel(t, color, ageMin), interactive: false, keyboard: false, opacity: Math.min(1, headAlpha + 0.2) }).addTo(tracksLayer);
   }
 }
 const TCLASS_ICON = { drone: '✈', aircraft: '🛩', missile: '▲' };
@@ -478,6 +607,18 @@ function videoOverlay(text) {
   document.body.appendChild(el);
   return { setPct(p) { el.querySelector('.vfill').style.width = p + '%'; }, setLabel(t) { el.querySelector('.vlabel').textContent = t; }, remove() { el.remove(); } };
 }
+// Burned-into-frame caption for the video: title, covered time span + a
+// progress bar that sweeps as the timelapse plays. Captured (not no-export).
+function videoCaption(min, max) {
+  const el = document.createElement('div');
+  el.className = 'vid-cap';
+  el.innerHTML = `<div class="vc-title">The Big Drone Detector · session timelapse</div>` +
+    `<div class="vc-span">${esc(fmtUTC(min))} → ${esc(fmtUTC(max))}</div>` +
+    `<div class="vc-bar"><div class="vc-fill"></div></div>`;
+  document.body.appendChild(el);
+  return { setPct(p) { el.querySelector('.vc-fill').style.width = p + '%'; }, remove() { el.remove(); } };
+}
+function easeInOut(x) { return x < 0.5 ? 2 * x * x : 1 - Math.pow(-2 * x + 2, 2) / 2; }
 async function recordVideo() {
   if (typeof html2canvas !== 'function' || typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
     alert('Video recording is not supported in this browser.'); return;
@@ -485,28 +626,35 @@ async function recordVideo() {
   const { min, max } = historyBounds();
   if (max - min < 60000) { alert('Not enough history yet — let the app run for a few minutes, then try again.'); return; }
   const btn = document.getElementById('videoBtn'), orig = btn.textContent;
-  const FRAMES = (window.DDX_VIDEO_FRAMES | 0) || 72, FPS = 12;
+  // Smoother + longer than before: more frames, higher fps + bitrate, easing,
+  // and a short hold on the final live frame so the clip ends cleanly.
+  const FRAMES = (window.DDX_VIDEO_FRAMES | 0) || 150, FPS = 24, HOLD = 24;
   const W = Math.floor(window.innerWidth), H = Math.floor(window.innerHeight);
   const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
   const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
   const stream = canvas.captureStream(0);
   const vtrack = stream.getVideoTracks()[0];
   let mime = 'video/webm;codecs=vp9';
   if (!MediaRecorder.isTypeSupported(mime)) mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : 'video/webm';
-  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 });
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 12000000 });
   const chunks = []; rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
   const stopped = new Promise((res) => { rec.onstop = res; });
 
   state.recording = true; stopReplay();
   btn.disabled = true; btn.textContent = '● REC';
   const ov = videoOverlay('Preparing…');
+  const cap = videoCaption(min, max);
   document.body.classList.add('recording');
   rec.start();
+  const paint = (shot) => { ctx.fillStyle = '#0a1622'; ctx.fillRect(0, 0, W, H); if (shot) ctx.drawImage(shot, 0, 0, W, H); vtrack.requestFrame(); };
   try {
-    for (let i = 0; i <= FRAMES; i++) {
-      const t = min + (max - min) * (i / FRAMES);
-      setTimelineTime(t);
-      await new Promise((r) => setTimeout(r, 45)); // let leaflet + tiles settle
+    for (let i = 0; i <= FRAMES + HOLD; i++) {
+      const held = i > FRAMES;
+      const frac = held ? 1 : easeInOut(i / FRAMES);   // ease-in-out through history
+      cap.setPct(Math.round(frac * 100));
+      setTimelineTime(min + (max - min) * frac);
+      await new Promise((r) => setTimeout(r, held ? 20 : 110)); // let leaflet + tiles settle
       let shot;
       try {
         shot = await html2canvas(document.body, {
@@ -514,13 +662,13 @@ async function recordVideo() {
           ignoreElements: (el) => el.classList && (el.classList.contains('no-export') || el.classList.contains('vid-overlay')),
         });
       } catch { shot = null; }
-      if (shot) ctx.drawImage(shot, 0, 0, W, H);
-      vtrack.requestFrame();
-      const pct = Math.round((i / FRAMES) * 100);
+      paint(shot);
+      const pct = Math.round((i / (FRAMES + HOLD)) * 100);
       ov.setLabel(`Rendering timelapse… ${pct}%`); ov.setPct(pct);
       await new Promise((r) => setTimeout(r, 1000 / FPS));
     }
   } finally {
+    cap.remove();
     rec.stop();
     await stopped;
     document.body.classList.remove('recording');

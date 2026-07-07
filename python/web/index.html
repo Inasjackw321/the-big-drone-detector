@@ -110,9 +110,21 @@
       .threat-icon .pulse { animation: ping 2.4s ease-out infinite; transform-origin: center; }
       .threat-icon .pulse-alert { animation: ping-alert 1.6s ease-out infinite; transform-origin: center; }
       .threat-icon .rotor { animation: spin 3s linear infinite; transform-origin: center; transform-box: fill-box; }
+      /* moving objects drift a few px along their heading, then settle — a live motion cue */
+      .threat-icon .mvwrap { animation: drift 2.6s ease-in-out infinite; will-change: transform; }
       @keyframes ping { 0% { opacity: 0.5; } 70%,100% { opacity: 0; transform: scale(2.4); } }
       @keyframes ping-alert { 0% { opacity: 0.85; } 70%,100% { opacity: 0; transform: scale(2.6); } }
       @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+      @keyframes drift { 0%,100% { transform: translate(0,0); } 50% { transform: translate(var(--mx,0), var(--my,0)); } }
+      /* airbase reference markers */
+      .base-icon { background: none; border: none; }
+      .base-icon svg { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.7)); opacity: 0.9; }
+      .base-label { background: none !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
+      .base-label::before { display: none !important; }
+      .base-label span, .base-label { color: #9ec2e4; font-size: 10px; font-weight: 600; letter-spacing: 0.2px; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,0.95); }
+      .base-tip { background: rgba(13,27,42,0.94) !important; color: #cfe4f7 !important; border: 1px solid #34506e !important; border-radius: 7px !important; font-size: 11.5px; }
+      .base-tip::before { border-top-color: #34506e !important; }
+      .zone-hatch { pointer-events: none; }
       .place-label { background: none !important; border: none !important; box-shadow: none !important; padding: 0 !important; }
       .place-label::before { display: none !important; }
       .place-label span { font-size: 11px; font-weight: 700; white-space: nowrap; padding: 1px 6px; border-radius: 5px; background: rgba(8,15,24,0.62); border: 1px solid rgba(255,255,255,0.06); text-shadow: 0 1px 2px rgba(0,0,0,0.9); }
@@ -153,6 +165,13 @@
       .vid-overlay .vbar { margin-top: 10px; width: 240px; height: 6px; background: #12233a; border-radius: 4px; overflow: hidden; }
       .vid-overlay .vfill { height: 100%; width: 0%; background: linear-gradient(90deg,#3b82f6,#5ad1ff); transition: width 0.2s; }
       .vid-overlay .vhint { margin-top: 8px; font-size: 11px; color: #8ea7bf; font-weight: 500; }
+      /* caption burned into the timelapse frames */
+      .vid-cap { display: none; position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%); z-index: 1400; text-align: center; color: #eaf2fb; text-shadow: 0 1px 4px rgba(0,0,0,0.9); pointer-events: none; }
+      body.recording .vid-cap { display: block; }
+      .vid-cap .vc-title { font-size: 15px; font-weight: 700; letter-spacing: 0.3px; }
+      .vid-cap .vc-span { font-size: 12px; color: #9ec2e4; margin-top: 2px; font-variant-numeric: tabular-nums; }
+      .vid-cap .vc-bar { margin: 7px auto 0; width: 340px; max-width: 60vw; height: 4px; background: rgba(255,255,255,0.16); border-radius: 3px; overflow: hidden; }
+      .vid-cap .vc-fill { height: 100%; width: 0%; background: linear-gradient(90deg,#5ad1ff,#ff4fd8); }
     </style>
   </head>
   <body>
@@ -197,6 +216,7 @@
       <div class="chip-row" id="layerBar">
         <button class="chip" data-layer="tracks">〰 Tracks</button>
         <button class="chip" data-layer="zones">◎ Zones</button>
+        <button class="chip" data-layer="bases">✈ Bases</button>
         <button class="chip" data-layer="labels">Aa Labels</button>
         <button class="chip" data-layer="clock">🕐 Clock</button>
         <button class="chip" id="translateChip" title="Auto-translate posts to English">🌐 Translate</button>
@@ -212,7 +232,8 @@
       <div class="lrow"><span class="ldot" style="background:#3fd87f"></span> All clear</div>
       <div class="lrow"><span class="lline" style="border-top-color:#ff4fd8;box-shadow:0 0 4px #ff4fd8"></span> Drone track</div>
       <div class="lrow"><span class="lline" style="border-top-color:#8fd6ff;box-shadow:0 0 4px #8fd6ff"></span> Aircraft / jet</div>
-      <div class="lsub">AO#id · km/h shown at track head<br />→ heading · shaded circle = area under danger</div>
+      <div class="lrow"><span class="ldot" style="background:#93b7d8;box-shadow:0 0 4px #93b7d8"></span> ✈ Airbase</div>
+      <div class="lsub">AO#id · km/h · age at track head<br />hatched area = region under threat<br />drone icons = live count, facing heading</div>
     </div>
 
     <div class="timeline" id="timeline">
