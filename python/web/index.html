@@ -47,15 +47,19 @@
 
       .warn-panel { position: absolute; top: 156px; left: 16px; z-index: 1000; width: 248px; max-height: 44vh; display: none; overflow: hidden; background: linear-gradient(180deg, rgba(16,30,46,0.94), rgba(11,22,36,0.92)); border: 1px solid #2d4a6a; border-radius: 13px; box-shadow: 0 8px 24px rgba(0,0,0,0.5); backdrop-filter: blur(8px); color: #cde0f5; }
       .warn-panel.danger { border-color: #ff3b3b; box-shadow: 0 0 0 1px #ff3b3b,0 6px 20px rgba(0,0,0,0.55); }
-      .warn-head { padding: 9px 12px; font-size: 13px; font-weight: 700; color: #fff; border-bottom: 1px solid #2d4a6a; display: flex; align-items: center; gap: 7px; }
-      .warn-head .wdot { width: 9px; height: 9px; border-radius: 50%; background: #ff7a3d; }
-      .warn-panel.danger .wdot { background: #ff3b3b; animation: blink 1s ease-in-out infinite; }
-      .warn-list { overflow-y: auto; max-height: calc(46vh - 40px); }
-      .warn-item { padding: 8px 12px; border-bottom: 1px solid rgba(45,74,106,0.5); cursor: pointer; display: flex; gap: 9px; align-items: flex-start; }
-      .warn-item:hover { background: #1a2d42; }
-      .warn-sev { width: 9px; height: 9px; border-radius: 50%; margin-top: 3px; flex: 0 0 auto; }
-      .warn-region { font-size: 12.5px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
-      .warn-meta { font-size: 11px; color: #8ab0d0; display: block; }
+      .warn-head { padding: 10px 13px; font-size: 13px; font-weight: 700; color: #eaf2fb; border-bottom: 1px solid #26425e; display: flex; align-items: center; gap: 8px; }
+      .warn-head b { color: #fff; }
+      .warn-head .wdot { width: 9px; height: 9px; border-radius: 50%; background: #ff7a3d; box-shadow: 0 0 7px #ff7a3d; }
+      .warn-panel.danger .wdot { background: #ff3b3b; box-shadow: 0 0 8px #ff3b3b; animation: blink 1s ease-in-out infinite; }
+      .warn-list { overflow-y: auto; max-height: calc(44vh - 42px); }
+      .warn-item { padding: 8px 12px 8px 13px; border-bottom: 1px solid rgba(38,66,94,0.55); cursor: pointer; position: relative; transition: background 0.12s; }
+      .warn-item::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--sev, #ff7a3d); }
+      .warn-item:hover { background: rgba(90,175,255,0.09); }
+      .warn-item:last-child { border-bottom: none; }
+      .warn-top { display: flex; align-items: center; gap: 8px; justify-content: space-between; }
+      .warn-region { font-size: 12.5px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      .warn-pill { font-size: 9.5px; font-weight: 800; letter-spacing: 0.4px; text-transform: uppercase; padding: 2px 7px; border-radius: 20px; border: 1px solid; white-space: nowrap; flex: 0 0 auto; }
+      .warn-meta { font-size: 11px; color: #93b3d0; margin-top: 3px; }
 
       .ctrl-col { position: absolute; top: 56px; right: 12px; z-index: 1001; display: flex; flex-direction: column; gap: 6px; align-items: flex-end; }
       .chip-row { display: flex; gap: 5px; flex-wrap: wrap; max-width: 340px; justify-content: flex-end; }
@@ -121,6 +125,22 @@
       .leaflet-control-zoom a { background: #1a2d42 !important; color: #cde0f5 !important; border-color: #2d4a6a !important; }
       .leaflet-control-attribution { background: rgba(13,27,42,0.7) !important; color: #8aa8c8 !important; }
       .leaflet-top { top: 48px; }
+
+      /* ---- area selection + PNG export ---- */
+      #map.map-selecting { cursor: crosshair; }
+      .sel-rect { position: absolute; z-index: 1500; pointer-events: none; border: 2px dashed #5ad1ff; background: rgba(90,209,255,0.10); box-shadow: 0 0 0 9999px rgba(8,15,24,0.5); }
+      .sel-hint { position: absolute; top: 58px; left: 50%; transform: translateX(-50%); z-index: 1600; background: rgba(11,22,34,0.96); color: #fff; padding: 9px 18px; border-radius: 22px; border: 1px solid #5ad1ff; font-size: 13px; box-shadow: 0 2px 14px rgba(0,0,0,0.5); }
+      .sel-hint b { color: #bfeaff; }
+      .exp-meta, .exp-legend { display: none; }
+      body.export-skin .hdr, body.export-skin .timeline, body.export-skin .ctrl-col, body.export-skin .legend, body.export-skin .warn-panel, body.export-skin .backfill, body.export-skin .leaflet-control-zoom, body.export-skin .leaflet-control-attribution { display: none !important; }
+      body.export-skin .clock { top: 14px !important; }
+      body.export-skin .exp-meta, body.export-skin .exp-legend { display: flex; }
+      .exp-meta { position: absolute; top: 92px; left: 16px; z-index: 1200; flex-direction: column; gap: 2px; background: rgba(8,15,24,0.72); border: 1px solid rgba(45,74,106,0.55); border-radius: 9px; padding: 8px 12px; backdrop-filter: blur(4px); }
+      .exp-meta .t { font-size: 13px; font-weight: 700; color: #e7eef6; }
+      .exp-meta .s { font-size: 11px; color: #8ea7bf; }
+      .exp-legend { position: absolute; left: 16px; bottom: 16px; z-index: 1200; gap: 13px; align-items: center; flex-wrap: wrap; max-width: 66%; background: rgba(8,15,24,0.72); border: 1px solid rgba(45,74,106,0.55); border-radius: 9px; padding: 7px 12px; color: #aebfd0; font-size: 11px; backdrop-filter: blur(4px); }
+      .exp-legend span { display: inline-flex; gap: 5px; align-items: center; }
+      .exp-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
     </style>
   </head>
   <body>
@@ -131,6 +151,7 @@
       <span class="title">The Big Drone Detector</span>
       <span class="hdr-status" id="statusText">connecting…</span>
       <span class="stats" id="stats"></span>
+      <button class="btn" id="dlBtn" title="Select an area to save as a PNG">⬇ Export</button>
       <span class="backend" id="backendLabel"></span>
     </header>
 
@@ -163,7 +184,6 @@
       <div class="chip-row" id="layerBar">
         <button class="chip" data-layer="tracks">〰 Tracks</button>
         <button class="chip" data-layer="zones">◎ Zones</button>
-        <button class="chip" data-layer="lines">➤ Vectors</button>
         <button class="chip" data-layer="labels">Aa Labels</button>
         <button class="chip" data-layer="clock">🕐 Clock</button>
         <button class="chip" id="translateChip" title="Auto-translate posts to English">🌐 Translate</button>
@@ -195,7 +215,20 @@
       <button class="tl-btn live active" id="tlLive" title="Jump to live">● LIVE</button>
     </div>
 
+    <!-- export chrome: visible only while capturing an area PNG -->
+    <div class="exp-meta"><span class="t" id="expMetaTitle"></span><span class="s" id="expMetaSub"></span></div>
+    <div class="exp-legend">
+      <span><i style="background:#ff3b3b"></i>Danger</span>
+      <span><i style="background:#ff7a3d"></i>Inbound</span>
+      <span><i style="background:#ffb03d"></i>Overhead</span>
+      <span><i style="background:#4fb6ff"></i>Intercepted</span>
+      <span><i style="background:#3fd87f"></i>All clear</span>
+      <span><i style="background:#ff4fd8;border-radius:0;height:2px;width:14px"></i>Drone</span>
+      <span><i style="background:#8fd6ff;border-radius:0;height:2px;width:14px"></i>Jet</span>
+    </div>
+
     <script src="vendor/leaflet/leaflet.js"></script>
+    <script src="vendor/html2canvas.min.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

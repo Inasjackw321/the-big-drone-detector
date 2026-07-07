@@ -87,6 +87,10 @@ CONFIG = {
     "max_new_posts": int(env("DDX_MAX_POSTS", "80")),
     "port": int(env("DDX_PORT", "8700")),
     "enable_nominatim": env("DDX_NOMINATIM", "1") not in ("0", "false", "no"),
+    # During bulk backfill, only use the slow (1 req/sec) Nominatim lookup for
+    # posts newer than this; older history resolves from the gazetteer / LLM
+    # coords / region centroid instantly.
+    "nominatim_recent_hours": float(env("DDX_NOMINATIM_RECENT_HOURS", "6")),
     "llm_timeout": int(env("DDX_LLM_TIMEOUT", "120")),
     # Concurrent extractions during backfill — overlaps Telegram fetch, geocode
     # and LLM calls so a busy history loads several times faster.
@@ -189,22 +193,30 @@ class Geocoder:
     def __init__(self):
         self.index = {}
         self.cache = {}
+        self.negative = set()  # cache_keys Nominatim couldn't resolve (skip re-query)
         self._lock = threading.Lock()
         self._nom_lock = threading.Lock()
         self._last_nom = 0.0
         self._load()
 
-    def load_cache(self, cache):
+    def load_cache(self, cache, negatives=None):
         """Warm-start resolved-place cache from a previous run (instant repeats)."""
         if isinstance(cache, dict):
             with self._lock:
                 for k, v in cache.items():
                     if isinstance(v, dict) and isinstance(v.get("lat"), (int, float)):
                         self.cache[k] = v
+        if isinstance(negatives, list):
+            with self._lock:
+                self.negative.update(negatives)
 
     def dump_cache(self):
         with self._lock:
             return {k: v for k, v in self.cache.items() if v}
+
+    def dump_negatives(self):
+        with self._lock:
+            return list(self.negative)[:8000]
 
     def _load(self):
         try:
@@ -272,23 +284,29 @@ class Geocoder:
                 return None
         return None
 
-    def resolve(self, sighting):
+    def resolve(self, sighting, allow_nominatim=True):
         loc = sighting.get("location", "")
         region = sighting.get("region", "")
         cache_key = normalize_key(f"{loc}|{region}")
         with self._lock:
             if cache_key in self.cache:
                 return self.cache[cache_key]
+            neg = cache_key in self.negative
 
+        # 1) gazetteer (instant)  2) confident in-region LLM coords (instant,
+        # avoids the network)  3) Nominatim (slow, rate-limited)  4) centroid.
         hit = self.lookup_local(loc, region)
-        if not hit:
-            q = f"{loc}, {region}" if region else loc
-            hit = self._nominatim(q)
-        if not hit:
-            hit = self.lookup_region(region)
-        if (not hit and in_region_bbox(sighting.get("lat"), sighting.get("lon"))):
+        if not hit and in_region_bbox(sighting.get("lat"), sighting.get("lon")):
             hit = {"lat": sighting["lat"], "lon": sighting["lon"], "source": "llm",
                    "name": loc, "region": region}
+        if not hit and allow_nominatim and not neg:
+            q = f"{loc}, {region}" if region else loc
+            hit = self._nominatim(q)
+            if not hit:  # remember the miss so we don't re-query it every run
+                with self._lock:
+                    self.negative.add(cache_key)
+        if not hit:
+            hit = self.lookup_region(region)
         # Region sanity: a town >450 km from its oblast centroid is the wrong namesake.
         if hit and hit["source"] in ("nominatim", "llm") and region:
             rc = self.lookup_region(region)
@@ -684,9 +702,14 @@ class OllamaClient:
         self.model = CONFIG["ollama_model"]
         self.verify = CONFIG["verify"]
 
-    def _chat(self, messages, timeout, fmt=SCHEMA):
+    def _chat(self, messages, timeout, fmt=SCHEMA, num_predict=None):
+        opts = {"temperature": 0, "num_ctx": 4096}
+        if num_predict:
+            opts["num_predict"] = num_predict
+        # keep_alive keeps the model resident between calls so we don't pay the
+        # multi-second reload cost on every extraction / translation.
         payload = {"model": self.model, "messages": messages, "stream": False,
-                   "options": {"temperature": 0, "num_ctx": 4096}}
+                   "keep_alive": "30m", "options": opts}
         if fmt is not None:
             payload["format"] = fmt
         body = json.dumps(payload).encode()
@@ -704,10 +727,12 @@ class OllamaClient:
 
     def translate(self, text, timeout=60):
         """Translate a Russian/Ukrainian post to English (free text)."""
+        # Cap output so the model stops promptly (posts are short) — a big
+        # latency win vs letting a 12B model ramble to its default limit.
         out = self._chat(
             [{"role": "system", "content": TRANSLATE_PROMPT},
              {"role": "user", "content": text}],
-            timeout, fmt=None)
+            timeout, fmt=None, num_predict=256)
         return (out or "").strip()
 
     def extract(self, post, verify=None):
@@ -1042,15 +1067,24 @@ class Pipeline:
 
         backfill_from_heuristic(extraction["sightings"], heur)
         strip_summary_counts(extraction["sightings"])
+        # Bulk-backfill of old posts skips the 1-req/sec Nominatim lookups
+        # (gazetteer + LLM coords + region centroid only) so history loads fast;
+        # recent posts and live polling still geocode precisely.
+        age_h = (now_ms() - parse_iso(post.get("date"))) / 3600000 if post.get("date") else 0
+        allow_nominatim = age_h <= CONFIG["nominatim_recent_hours"]
         created = []
         for i, s in enumerate(extraction["sightings"]):
             if is_blocked_location(s["location"]):
                 continue
             s = normalize_direction(s)
-            geo = self.geocoder.resolve(s)
+            geo = self.geocoder.resolve(s, allow_nominatim=allow_nominatim)
             if not geo:
                 continue
-            destination, d_lat, d_lon, bearing = resolve_movement(s, geo, self.geocoder)
+            # We no longer draw destination arrows, so don't spend a network
+            # geocode on the destination — keep the name + a cheap heading only.
+            destination = s.get("destination") or None
+            bearing = heading_to_bearing(s.get("heading"))
+            d_lat = d_lon = None
             sighting = {
                 "id": f"{post['channel']}-{post['postId']}-{i}", "channel": post["channel"],
                 "postId": post["postId"], "postLink": post["link"], "postDate": post.get("date"),
@@ -1210,7 +1244,8 @@ class Pipeline:
             tmp = STATE_FILE + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
                 json.dump({"sightings": self.store.all(), "lastPostId": self.store.last_post_id,
-                           "geocache": self.geocoder.dump_cache(), "savedAt": iso_now()},
+                           "geocache": self.geocoder.dump_cache(),
+                           "geocacheNeg": self.geocoder.dump_negatives(), "savedAt": iso_now()},
                           f, ensure_ascii=False)
             os.replace(tmp, STATE_FILE)
         except Exception as e:
@@ -1235,6 +1270,34 @@ class Pipeline:
             _translate_cache[text] = out
         return out
 
+    def prewarm_translations(self, limit=14):
+        """Background: translate the newest warning posts so their popups open
+        instantly. Runs off-thread; never blocks the pipeline."""
+        if not self.use_llm:
+            return
+        warn = {"alert", "impact", "approaching", "overhead"}
+        seen, todo = set(), []
+        for s in sorted(self.store.all(), key=lambda x: parse_iso(x.get("timestamp")), reverse=True):
+            t = (s.get("postText") or "").strip()
+            if not t or s.get("status") not in warn or t in seen:
+                continue
+            with _translate_lock:
+                if t in _translate_cache:
+                    continue
+            seen.add(t)
+            todo.append(t)
+            if len(todo) >= limit:
+                break
+
+        def run():
+            for t in todo:
+                try:
+                    self.translate(t)
+                except Exception:
+                    pass
+        if todo:
+            threading.Thread(target=run, daemon=True).start()
+
     def restore(self):
         """Load the persisted cache; returns the number of sightings restored."""
         try:
@@ -1246,7 +1309,7 @@ class Pipeline:
             log(f"restore failed: {e}")
             return 0
         self.store.load(data.get("sightings"), data.get("lastPostId"))
-        self.geocoder.load_cache(data.get("geocache"))
+        self.geocoder.load_cache(data.get("geocache"), data.get("geocacheNeg"))
         self.store.prune(CONFIG["history_hours"])
         return self.store.count()
 
@@ -1320,6 +1383,7 @@ def worker(pipeline):
 
     try:
         pipeline.backfill(make_progress())
+        pipeline.prewarm_translations()  # warm the newest warnings for instant popups
     except Exception as e:
         log(f"backfill error: {e}")
         write_status("error", f"Backfill error: {e}")
@@ -1329,7 +1393,9 @@ def worker(pipeline):
         try:
             write_status("polling", "Polling channels…")
             n = pipeline.poll()
-            write_status("idle", f"Live — {len(pipeline.store.all())} sighting(s)." +
+            if n:
+                pipeline.prewarm_translations()
+            write_status("idle", f"Live — {pipeline.store.count()} sighting(s)." +
                          (f" +{n} new." if n else ""))
         except Exception as e:
             log(f"poll error: {e}")

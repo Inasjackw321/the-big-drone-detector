@@ -66,9 +66,12 @@ Ollama instead).
 - **🌐 Translate**: click *Translate* in any post popup to render the
   Russian/Ukrainian text in English (translated on-device by the same Ollama
   model, cached). Toggle the **🌐 Translate** chip to auto-translate every
-  popup you open.
-- Click a warning to fly to it; hover a track for its route, distance and time
-  span; click a marker for the source post.
+  popup you open. The newest warnings are pre-translated in the background, so
+  those popups open instantly.
+- **⬇ Export**: click Export, then drag a rectangle to save that area of the
+  map as a clean PNG (with the clock, a region/time header and a legend).
+- Click a warning to fly to it; hover a track for its object id, speed, route
+  and time span; click a marker for the source post.
 
 ## Accuracy
 
@@ -91,6 +94,7 @@ Ollama instead).
 | `DDX_VERIFY_RECENT_HOURS` | `6` | during backfill, verify only posts newer than this |
 | `DDX_CONCURRENCY` | `3` | parallel extractions |
 | `DDX_LLM_PREFILTER` | `1` | skip the model for posts with no threat keyword (faster) |
+| `DDX_NOMINATIM_RECENT_HOURS` | `6` | during backfill, only use the slow OpenStreetMap geocoder for posts newer than this |
 | `TELEGRAM_CHANNELS` | `radarrussiia,kpszsu,lpr1_treugolnik` | channels |
 | `DDX_BACKFILL_HOURS` | `48` | history downloaded on startup / timeline length |
 | `POLL_INTERVAL_SECONDS` | `120` | how often to check for new posts |

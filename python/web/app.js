@@ -27,7 +27,7 @@ const TRAIL_POINTS = 10; // radar tail: show only the last N positions, so the
 
 const state = {
   sightings: [], tracks: [], filter: 'all', hasAutoZoomed: false,
-  layers: (() => { const d = { tracks: true, zones: true, lines: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
+  layers: (() => { const d = { tracks: true, zones: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
   timeline: { live: true, asOf: Date.now(), playing: false, speed: 300 },
   autoTranslate: (() => { try { return localStorage.getItem('ddx-translate') === '1'; } catch { return false; } })(),
 };
@@ -83,7 +83,8 @@ function jetGlyph(cx, cy, color, s) {
 }
 function threatGlyph(type, cx, cy, color, s) { if (type === 'drone') return droneGlyph(cx, cy, color, s); if (type === 'aircraft') return jetGlyph(cx, cy, color, s); if (['missile','cruise_missile','ballistic_missile'].includes(type)) return missileGlyph(cx, cy, color, s); return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s); }
 function buildIcon(s) {
-  const info = statusInfo(s), color = info.color, bearing = confidentBearing(s);
+  // Markers carry no direction arrow — only the flight tracks show heading.
+  const info = statusInfo(s), color = info.color, bearing = null;
   const isWarn = info.warn, isDanger = info.level >= 3, count = Math.max(1, s.count || 1);
   const scale = 1.05, gR = 7.8 * scale, showCount = count > 1, label = '×' + count;
   const labelW = showCount ? label.length * 7 + 12 : 0, gap = 6, half = showCount ? 10 : 0;
@@ -167,8 +168,8 @@ function wirePopupTranslate(popup) {
 // ---- map ----
 const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.5, 42.0], 5);
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
-const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), routeLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
-const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, lines: routeLayer, labels: labelsLayer };
+const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
+const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, labels: labelsLayer };
 function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
 map.on('popupopen', (e) => wirePopupTranslate(e.popup));
 
@@ -176,15 +177,13 @@ function currentAsOf() { return state.timeline.live ? Date.now() : state.timelin
 function renderAll() { const asOf = currentAsOf(); const sightings = sightingsAsOf(asOf); renderMarkers(sightings); renderTracks(tracksAsOf(asOf)); renderWarnings(sightings); updateHeader(sightings); updateClock(); }
 
 function renderMarkers(sightings) {
-  zonesLayer.clearLayers(); routeLayer.clearLayers(); markersLayer.clearLayers(); labelsLayer.clearLayers();
+  zonesLayer.clearLayers(); markersLayer.clearLayers(); labelsLayer.clearLayers();
   const asOf = currentAsOf(), toShow = sightings.filter(matchesFilter), pts = [];
   for (const s of toShow) {
     const info = statusInfo(s), color = info.color;
     if (info.level >= 3) L.circle([s.lat, s.lon], { radius: 45000, color, fillColor: color, fillOpacity: 0.045, weight: 1, opacity: 0.28, dashArray: '5 5' }).addTo(zonesLayer);
     else if (s.geocodePrecision === 'region') L.circle([s.lat, s.lon], { radius: 30000, color: '#6f93b4', weight: 1, opacity: 0.25, fill: false, dashArray: '3 6' }).addTo(zonesLayer);
-    const dest = confidentDest(s), bearing = resolveBearing(s);
-    if (dest) { const lb = bearingTo(s.lat, s.lon, dest.lat, dest.lon); L.polyline([[s.lat, s.lon], [dest.lat, dest.lon]], { color, weight: 2.5, opacity: 0.55, dashArray: '7 6' }).addTo(routeLayer); L.marker([dest.lat, dest.lon], { icon: arrowheadIcon(lb, color), interactive: false, keyboard: false }).addTo(routeLayer); pts.push([dest.lat, dest.lon]); }
-    else if (bearing !== null && info.warn) { const pe = projectPoint(s.lat, s.lon, bearing, 200); L.polyline([[s.lat, s.lon], pe], { color, weight: 1.5, opacity: 0.25, dashArray: '3 10' }).addTo(routeLayer); L.marker(pe, { icon: arrowheadIcon(bearing, color), interactive: false, keyboard: false, opacity: 0.35 }).addTo(routeLayer); }
+    // No destination arrows/vectors — flight tracks are the only direction cue.
     const ageMin = (asOf - (Date.parse(s.timestamp || '') || asOf)) / 60000, opacity = ageMin <= 10 ? 1 : Math.max(0.5, 1 - (ageMin - 10) / 100);
     const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
     mk._s = s; // let the popup-open handler reach this sighting for translation
@@ -244,16 +243,53 @@ function renderTracks(tracks) {
     if (t.code) L.marker(b, { icon: trackHeadLabel(t, color), interactive: false, keyboard: false, opacity: headAlpha }).addTo(tracksLayer);
   }
 }
+const TCLASS_ICON = { drone: '✈', aircraft: '🛩', missile: '▲' };
 function renderWarnings(sightings) {
   const panel = document.getElementById('warnPanel'), list = document.getElementById('warnList'), title = document.getElementById('warnTitle');
   const warns = sightings.filter((s) => statusInfo(s).warn);
   if (!warns.length) { panel.style.display = 'none'; return; }
+  // Group active warnings by region; track the worst status, spot count, total
+  // objects, source channels and freshness so each row is accurate + rich.
   const groups = new Map();
-  for (const s of warns) { const key = s.region || s.location || '—', info = statusInfo(s); let g = groups.get(key); if (!g) { g = { key, level: 0, spots: 0, latest: 0, latlng: [s.lat, s.lon], label: info.label, color: info.color }; groups.set(key, g); } g.spots++; const t = Date.parse(s.timestamp || '') || 0; if (t > g.latest) g.latest = t; if (info.level > g.level) { g.level = info.level; g.label = info.label; g.color = info.color; g.latlng = [s.lat, s.lon]; } }
-  const arr = [...groups.values()].sort((a, b) => b.level - a.level || b.latest - a.latest).slice(0, 14), danger = arr.some((g) => g.level >= 3);
-  panel.className = 'warn-panel' + (danger ? ' danger' : ''); panel.style.display = 'block'; title.textContent = `Active warnings (${groups.size})`;
+  for (const s of warns) {
+    const key = s.region || s.location || '—', info = statusInfo(s);
+    let g = groups.get(key);
+    if (!g) { g = { key, level: 0, spots: 0, latest: 0, latlng: [s.lat, s.lon], label: info.label, color: info.color, count: 0, sources: new Set(), classes: new Set(), place: s.location }; groups.set(key, g); }
+    g.spots++;
+    if (typeof s.count === 'number') g.count += s.count;
+    (s.sources || (s.channel ? [s.channel] : [])).forEach((c) => g.sources.add(c));
+    g.classes.add(s.threatType === 'aircraft' ? 'aircraft' : ['missile','cruise_missile','ballistic_missile'].includes(s.threatType) ? 'missile' : 'drone');
+    const t = Date.parse(s.timestamp || '') || 0; if (t > g.latest) g.latest = t;
+    if (info.level > g.level) { g.level = info.level; g.label = info.label; g.color = info.color; g.latlng = [s.lat, s.lon]; g.place = s.location; }
+  }
+  const arr = [...groups.values()].sort((a, b) => b.level - a.level || b.latest - a.latest).slice(0, 16);
+  const danger = arr.some((g) => g.level >= 3);
+  const dangerCount = arr.filter((g) => g.level >= 3).length;
+  panel.className = 'warn-panel' + (danger ? ' danger' : '');
+  panel.style.display = 'block';
+  title.innerHTML = `Active warnings <b>${groups.size}</b>` + (dangerCount ? ` · <span style="color:#ff5c5c">${dangerCount} danger</span>` : '');
   list.innerHTML = '';
-  for (const g of arr) { const ago = g.latest ? fmtTime(new Date(g.latest).toISOString()) : ''; const row = document.createElement('div'); row.className = 'warn-item'; row.innerHTML = `<span class="warn-sev" style="background:${g.color}"></span><span class="warn-body"><span class="warn-region">${esc(g.key)}</span><span class="warn-meta">${esc(g.label)} · ${g.spots} spot${g.spots > 1 ? 's' : ''}${ago ? ' · ' + ago : ''}</span></span>`; row.addEventListener('click', () => { if (typeof g.latlng[0] === 'number') map.flyTo(g.latlng, Math.max(map.getZoom(), 8), { duration: 0.6 }); }); list.appendChild(row); }
+  for (const g of arr) {
+    const ago = g.latest ? fmtTime(new Date(g.latest).toISOString()) : '';
+    const icons = [...g.classes].map((c) => TCLASS_ICON[c] || '').join('');
+    const bits = [];
+    if (g.count > 0) bits.push(`${icons} ×${g.count}`);
+    else if (icons) bits.push(icons);
+    if (g.spots > 1) bits.push(`${g.spots} spots`);
+    if (g.sources.size >= 2) bits.push(`✓ ${g.sources.size} src`);
+    if (ago) bits.push(ago);
+    const row = document.createElement('div');
+    row.className = 'warn-item';
+    row.style.setProperty('--sev', g.color);
+    row.innerHTML =
+      `<div class="warn-body">` +
+        `<div class="warn-top"><span class="warn-region">${esc(g.key)}</span>` +
+        `<span class="warn-pill" style="color:${g.color};border-color:${g.color}66;background:${g.color}1f">${esc(g.label)}</span></div>` +
+        `<div class="warn-meta">${bits.map(esc).join(' · ')}</div>` +
+      `</div>`;
+    row.addEventListener('click', () => { if (typeof g.latlng[0] === 'number') map.flyTo(g.latlng, Math.max(map.getZoom(), 8), { duration: 0.6 }); });
+    list.appendChild(row);
+  }
 }
 function updateHeader(sightings) {
   const active = sightings.filter((s) => s.status !== 'all_clear');
@@ -326,6 +362,85 @@ if (translateChip) {
     if (state.autoTranslate && map._popup) wirePopupTranslate(map._popup);
   });
 }
+
+// ---- area PNG export ----
+function regionOf(s) { return s.region || s.location || '—'; }
+function populateExportChrome(bounds) {
+  const shown = sightingsAsOf(currentAsOf()).filter((s) => typeof s.lat === 'number' && bounds.contains([s.lat, s.lon]));
+  const counts = {};
+  shown.forEach((s) => { const r = regionOf(s); counts[r] = (counts[r] || 0) + 1; });
+  const top = Object.entries(counts).sort((a, b) => b[1] - a[1])[0];
+  const active = shown.filter((s) => s.status !== 'all_clear');
+  const warns = shown.filter((s) => statusInfo(s).warn);
+  document.getElementById('expMetaTitle').textContent = top ? top[0] : 'Selected area';
+  document.getElementById('expMetaSub').textContent = `${fmtUTC(new Date(currentAsOf()))} · ${active.length} active · ${warns.length} warnings`;
+}
+async function captureToPng(filename) {
+  const canvas = await html2canvas(document.body, {
+    useCORS: true, backgroundColor: '#0a1622', scale: 2, logging: false, imageTimeout: 15000,
+    ignoreElements: (el) => el.classList && (el.classList.contains('no-export') || el.classList.contains('sel-rect') || el.classList.contains('sel-hint')),
+    onclone: (doc) => { const st = doc.createElement('style'); st.textContent = '.pulse,.pulse-alert{display:none !important}.threat-icon .rotor{animation:none !important}'; doc.head.appendChild(st); },
+  });
+  const link = document.createElement('a');
+  link.download = filename; link.href = canvas.toDataURL('image/png');
+  document.body.appendChild(link); link.click(); link.remove();
+}
+async function exportArea(bounds) {
+  if (typeof html2canvas !== 'function') { alert('Image renderer failed to load.'); return; }
+  const btn = document.getElementById('dlBtn'), orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Rendering…';
+  map.fitBounds(bounds, { animate: false, paddingTopLeft: [12, 24], paddingBottomRight: [12, 24] });
+  populateExportChrome(map.getBounds());
+  document.body.classList.add('export-skin');
+  try {
+    await new Promise((r) => setTimeout(r, 750)); // let tiles settle
+    const stamp = new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+    await captureToPng(`drone-map-${stamp}.png`);
+  } catch (err) { alert('Could not render the area: ' + err.message); }
+  finally { document.body.classList.remove('export-skin'); btn.disabled = false; btn.textContent = orig; }
+}
+let selecting = false, selStart = null, selDiv = null, selHint = null;
+function selPoint(e) { const r = map.getContainer().getBoundingClientRect(); return { x: e.clientX - r.left, y: e.clientY - r.top, cx: e.clientX, cy: e.clientY }; }
+function startAreaSelect() {
+  if (selecting) return;
+  selecting = true;
+  map.getContainer().classList.add('map-selecting'); map.dragging.disable(); if (map.boxZoom) map.boxZoom.disable();
+  selHint = document.createElement('div'); selHint.className = 'sel-hint no-export';
+  selHint.innerHTML = 'Drag to select an area to export · <b>Esc</b> to cancel';
+  document.body.appendChild(selHint);
+  map.getContainer().addEventListener('pointerdown', selDown); document.addEventListener('keydown', selKey);
+}
+function selDown(e) {
+  if (!selecting || e.button !== 0) return;
+  e.preventDefault(); selStart = selPoint(e);
+  selDiv = document.createElement('div'); selDiv.className = 'sel-rect';
+  Object.assign(selDiv.style, { left: selStart.cx + 'px', top: selStart.cy + 'px', width: '0px', height: '0px' });
+  document.body.appendChild(selDiv);
+  window.addEventListener('pointermove', selMove); window.addEventListener('pointerup', selUp);
+}
+function selMove(e) {
+  if (!selStart) return; const p = selPoint(e);
+  Object.assign(selDiv.style, { left: Math.min(p.cx, selStart.cx) + 'px', top: Math.min(p.cy, selStart.cy) + 'px', width: Math.abs(p.cx - selStart.cx) + 'px', height: Math.abs(p.cy - selStart.cy) + 'px' });
+}
+function selUp(e) {
+  window.removeEventListener('pointermove', selMove); window.removeEventListener('pointerup', selUp);
+  const p = selPoint(e), start = selStart; cancelAreaSelect();
+  if (!start) return;
+  if (Math.abs(p.x - start.x) < 20 || Math.abs(p.y - start.y) < 20) return;
+  const a = map.containerPointToLatLng([Math.min(p.x, start.x), Math.min(p.y, start.y)]);
+  const b = map.containerPointToLatLng([Math.max(p.x, start.x), Math.max(p.y, start.y)]);
+  exportArea(L.latLngBounds(a, b));
+}
+function selKey(e) { if (e.key === 'Escape') cancelAreaSelect(); }
+function cancelAreaSelect() {
+  selecting = false; selStart = null;
+  if (selDiv) { selDiv.remove(); selDiv = null; }
+  if (selHint) { selHint.remove(); selHint = null; }
+  map.getContainer().classList.remove('map-selecting'); map.dragging.enable(); if (map.boxZoom) map.boxZoom.enable();
+  map.getContainer().removeEventListener('pointerdown', selDown); document.removeEventListener('keydown', selKey);
+  window.removeEventListener('pointermove', selMove); window.removeEventListener('pointerup', selUp);
+}
+document.getElementById('dlBtn').addEventListener('click', startAreaSelect);
 
 // ---- status + data polling ----
 function setStatus(st, msg) { const dot = document.getElementById('statusDot'), text = document.getElementById('statusText'); text.textContent = msg || ''; dot.className = 'dot'; if (st === 'error') dot.classList.add('error'); else if (['polling','processing','backfill','starting'].includes(st)) dot.classList.add('busy'); }
