@@ -1,10 +1,15 @@
 # The Big Drone Detector — Python app
 
 A Python app that tracks Russian/Ukrainian aerial threats (drones, Shaheds,
-cruise & ballistic missiles) from public Telegram channels, extracts them with a
-**local Ollama model** (default `translategemma:12b`), correlates them into
+cruise & ballistic missiles) from public Telegram channels, reads them with a
+**local Ollama model** (default `gemma3:12b`), correlates them into
 **flight tracks**, and shows everything on a live dark map with a **history
 timeline** — **in your browser**.
+
+The model does the reading: it classifies each object's type, separates
+distinct objects mentioned in the same post (so a missile is never chained to
+the drones beside it), and geocodes place names — which is what keeps each
+track to a single object.
 
 ## Requirements
 
@@ -12,7 +17,7 @@ timeline** — **in your browser**.
 - **[Ollama](https://ollama.com)** running locally with the model pulled:
 
   ```sh
-  ollama pull translategemma:12b
+  ollama pull gemma3:12b   # or gemma3:4b for a ~3x faster, slightly less precise run
   ollama serve            # usually already running after install
   ```
 
@@ -75,6 +80,12 @@ Ollama instead).
 
 ## Accuracy
 
+- **The AI reads each post** — a general instruction model (`gemma3`) classifies
+  every object by its own type (a missile/rocket is never mislabelled a drone)
+  and assigns an **object id** so that several objects mentioned in one post are
+  kept apart. The track builder trusts that grouping: two objects the AI
+  separated are never chained into one track, and a group the AI reads as one
+  moving thing keeps its path even through a sharp turn.
 - **Structured outputs** — the JSON schema is sent to Ollama as the `format`
   field, so the model can only return schema-valid JSON.
 - **Verification pass** — a second model call re-reads each post next to the
@@ -88,7 +99,7 @@ Ollama instead).
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OLLAMA_MODEL` | `translategemma:12b` | local model name |
+| `OLLAMA_MODEL` | `gemma3:12b` | local reading/geocoding model (try `gemma3:4b` for speed) |
 | `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | Ollama server |
 | `DDX_VERIFY` | `1` | second accuracy-checking pass |
 | `DDX_VERIFY_RECENT_HOURS` | `6` | during backfill, verify only posts newer than this |
@@ -105,10 +116,10 @@ Ollama instead).
 | `DDX_NOMINATIM` | `1` | allow OpenStreetMap geocoding for places not in the offline gazetteer |
 | `DDX_ALLOW_HEURISTIC_ONLY` | `1` | keep running (heuristic parser) if Ollama is unavailable |
 
-Example — a faster, drones-only run over the last 12 hours:
+Example — a faster run over the last 12 hours (smaller model, no verify pass):
 
 ```sh
-OLLAMA_MODEL=translategemma:12b DDX_BACKFILL_HOURS=12 DDX_VERIFY=0 python drone_detector.py
+OLLAMA_MODEL=gemma3:4b DDX_BACKFILL_HOURS=12 DDX_VERIFY=0 python drone_detector.py
 ```
 
 ## Data sources
@@ -117,5 +128,8 @@ OLLAMA_MODEL=translategemma:12b DDX_BACKFILL_HOURS=12 DDX_VERIFY=0 python drone_
 `@kpszsu` (Ukrainian Air Force — Russian strikes on Ukraine), read from each
 channel's public web preview. No Telegram account or bot token required.
 
-Each flight track is built from a **single channel's** reports, so a sighting
-from one source is never chained to another's — one track follows one object.
+Each flight track is built from a **single channel's** reports **and a single
+object** — the AI separates distinct objects (a missile vs. the drones beside
+it, one drone group vs. another) and the builder never chains across channels,
+across threat types, or across objects the AI marked as different. One track
+follows one object.

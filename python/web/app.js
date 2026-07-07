@@ -147,7 +147,7 @@ function popupHtml(s) {
   return `<div class="popup-title">${esc(s.location)}</div>${statusLine}${confirm}<div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>${going}<div class="popup-acc">${acc.join(' · ')}</div>${post}${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}`;
 }
 
-// ---- translation (on-demand, cached; server calls Ollama translategemma) ----
+// ---- translation (on-demand, cached; server calls the local Ollama model) ----
 const _trCache = new Map();
 async function translateText(text) {
   if (_trCache.has(text)) return _trCache.get(text);
