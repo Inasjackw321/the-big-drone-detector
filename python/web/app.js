@@ -411,12 +411,13 @@ function renderMarkers(sightings, tracks) {
 // a radar plotting the projected track — so movement is always visible, at any
 // zoom, regardless of the post's age. It leaves a fading wake behind it.
 const FLIGHT_MS = (window.DDX_FLIGHT_MS | 0) || 24000;
-function moverBearing(s, tracks) {
+function moverClass(t) { return t === 'drone' ? 'drone' : t === 'aircraft' ? 'aircraft' : ['missile', 'cruise_missile', 'ballistic_missile'].includes(t) ? 'missile' : 'other'; }
+function moverBearing(s, cls, tracks) {
   const b = resolveBearing(s);
   if (b !== null) return b;
   // Fall back to the direction of the object's own track (last leg).
   if (tracks) for (const t of tracks) {
-    if (t.threatClass !== 'drone' || t.points.length < 2) continue;
+    if (t.threatClass !== cls || t.points.length < 2) continue;
     const h = t.points[t.points.length - 1];
     if (haversineKm(s.lat, s.lon, h.lat, h.lon) < 8) {
       const a = t.points[t.points.length - 2];
@@ -426,15 +427,17 @@ function moverBearing(s, tracks) {
   return null;
 }
 function registerMover(s, marker, label, base, tracks) {
-  if (s.threatType !== 'drone') return;
+  if (!ORIENTABLE.has(s.threatType)) return;                 // drones, jets, missiles
   if (s.status !== 'approaching' && s.status !== 'overhead') return;
+  const cls = moverClass(s.threatType);
   const dest = confidentDest(s);
-  const brg = moverBearing(s, tracks);
+  const brg = moverBearing(s, cls, tracks);
   if (!dest && brg === null) return;          // we don't know where it's flying
-  const totalKm = dest ? Math.min(420, haversineKm(s.lat, s.lon, dest.lat, dest.lon)) : 170;
+  const totalKm = dest ? Math.min(500, haversineKm(s.lat, s.lon, dest.lat, dest.lon)) : (cls === 'drone' ? 170 : 260);
   if (totalKm < 4) return;
   const target = dest ? [dest.lat, dest.lon] : projectPoint(s.lat, s.lon, brg, totalKm);
-  const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: TRACK_COLORS.drone, weight: 1.8, opacity: 0.75, dashArray: '3 5', interactive: false }).addTo(markersLayer);
+  const col = TRACK_COLORS[cls] || TRACK_COLORS.other;
+  const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: col, weight: 1.8, opacity: 0.75, dashArray: '3 5', interactive: false }).addTo(markersLayer);
   state.movers.push({ marker, label, wake, base: base == null ? 1 : base,
     fromLat: s.lat, fromLon: s.lon, toLat: target[0], toLon: target[1], startT: Date.now() });
 }

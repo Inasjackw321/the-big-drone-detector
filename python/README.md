@@ -59,8 +59,11 @@ On start it:
 - The slower verification pass runs only on **recent** posts during bulk
   backfill (`DDX_VERIFY_RECENT_HOURS`); live polling always verifies.
 
-If Ollama isn't reachable, it falls back to the built-in deterministic parser so
-the map still works (less accurate — set `DDX_ALLOW_HEURISTIC_ONLY=0` to require
+If the model in `OLLAMA_MODEL` isn't pulled, the app automatically uses another
+**installed** chat model instead (so the AI — and translation, and the
+direction it needs to move drones — keep working). Only if Ollama is
+unreachable or has no usable model does it fall back to the built-in
+deterministic parser (less accurate; set `DDX_ALLOW_HEURISTIC_ONLY=0` to require
 Ollama instead).
 
 ## In the map

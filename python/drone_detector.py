@@ -628,6 +628,7 @@ Rules:
 - NEVER use a sea, body of water, or whole country as a location. Only real settlements, raions, oblasts, or airbases.
 - Prefer the most specific place mentioned. If only a region is given, use the region as the location.
 - MOVEMENT: "destination" = the PLACE NAME the threat is moving toward (English), from "курс на X", "в сторону X", "в напрямку X". Prefer the ultimate major target (a city or oblast) over small waypoint villages. "heading" = compass direction ONLY, exactly one of: north, north-east, east, south-east, south, south-west, west, north-west; else null. Never put place names in heading.
+- ALWAYS ESTIMATE A COURSE for any drone/missile/aircraft that is in flight (status approaching or overhead) so it can be tracked as it moves: fill "destination" with where it is heading when stated or clearly implied, AND set "heading" to your best estimate of its compass course — derive it from the stated course ("курс на"/"в напрямку"), from the destination's direction relative to this place, or from the order of towns it is crossing. A drone crossing a border region is heading the way that carries it across. Only leave BOTH destination and heading empty if the post truly gives no directional clue.
 - Do NOT create a separate sighting for the destination a threat is heading TOWARD. Only output a sighting for a place where the threat currently is, was seen, or is passing through.
 - COUNT: number of objects for a SINGLE place ("Фиксация от N БПЛА", "N дронов") -> count=N; a single total over MANY regions -> count=null everywhere.
 - STATUS mapping: отбой/відбій->all_clear; опасность/угроза/тревога/тривога->alert; сбит/збито/знищено->shot_down; работа ПВО/ППО/відбиваємо->overhead; фиксация/летят/в сторону/курсом на/рухаються->approaching; прилёт/взрыв/приліт/вибух/влучання->impact; else unknown.
@@ -644,6 +645,7 @@ Re-read the POST carefully and output a CORRECTED extraction with the same schem
 - DELETE any sighting whose location is not actually in the post (hallucinations), or that is a sea/whole country, or that merely duplicates a DESTINATION a threat is heading toward.
 - FIX any wrong field: count must appear in the post for that exact place; status must match the wording (отбой->all_clear, сбит/збито->shot_down, прилёт/вибух->impact, работа ПВО/ППО->overhead, опасность/тривога->alert, фиксация/курс/летять->approaching); destination is the place moved TOWARD or null.
 - FIX threat_type: a missile/rocket must NEVER be labelled "drone" and vice-versa — classify each object by its own wording. FIX object_id: sightings of the SAME moving group share one object_id; a separate drone group or a missile mentioned alongside drones gets a DIFFERENT object_id.
+- KEEP the travel direction: for an in-flight object (approaching/overhead), keep or supply a best-estimate "heading" and/or "destination" so it can be tracked as it moves — don't blank a plausible course.
 - If a sighting is correct, keep it. If the post is not a specific aerial threat over identifiable places, set is_relevant=false and sightings=[].
 - Lower confidence when unsure; raise it for clear sightings. Output JSON only."""
 
@@ -1455,6 +1457,22 @@ def make_progress():
 # --------------------------------------------------------------------------- #
 # Worker thread
 # --------------------------------------------------------------------------- #
+def pick_fallback_model(models):
+    """Choose an installed chat model when the configured tag isn't pulled, so
+    the AI still runs (and translation works) with whatever the user has."""
+    cand = [m for m in models if m and "embed" not in m.lower()]
+    if not cand:
+        return None
+    prefs = ["gemma4", "gemma3", "gemma2", "gemma", "llama3", "llama-3", "llama",
+             "qwen3", "qwen2.5", "qwen2", "qwen", "mistral", "mixtral", "phi",
+             "deepseek", "command-r", "granite", "translategemma"]
+    for p in prefs:
+        for m in cand:
+            if m.lower().startswith(p):
+                return m
+    return cand[0]
+
+
 def worker(pipeline):
     # Instant paint: restore the last session from disk and render it before we
     # touch the network, so the map is full the moment the window opens.
@@ -1469,16 +1487,27 @@ def worker(pipeline):
     if ok:
         has, models = pipeline.llm.has_model()
         if not has:
-            msg = (f'Model "{CONFIG["ollama_model"]}" not installed. Run: '
+            # The configured tag isn't pulled — rather than dropping to the
+            # (direction-less) heuristic parser, run the AI on whatever chat
+            # model IS installed. This is what makes drones move: the model
+            # supplies the heading/destination the heuristic can't.
+            alt = pick_fallback_model(models)
+            if alt:
+                log(f'Model "{CONFIG["ollama_model"]}" not installed — using installed model "{alt}" instead.')
+                CONFIG["ollama_model"] = alt
+                pipeline.llm.model = alt
+                has = True
+        if has:
+            log(f"Ollama ready: {CONFIG['ollama_model']}")
+        else:
+            msg = (f'No usable Ollama model (wanted "{CONFIG["ollama_model"]}"). Run: '
                    f'ollama pull {CONFIG["ollama_model"]}. Installed: {", ".join(models) or "none"}.')
             log(msg)
             if not CONFIG["allow_heuristic_only"]:
                 write_status("error", msg)
                 return
             pipeline.use_llm = False
-            write_status("warn", "Ollama model missing — using the offline heuristic parser.")
-        else:
-            log(f"Ollama ready: {CONFIG['ollama_model']}")
+            write_status("warn", "No Ollama model — using the offline heuristic parser.")
     else:
         log(f"Ollama not reachable at {CONFIG['ollama_url']}.")
         if not CONFIG["allow_heuristic_only"]:
