@@ -14,12 +14,12 @@
  */
 
 const DEFAULTS = {
-  maxLegKm: 450,      // max distance between consecutive points of one track
-  maxGapMin: 100,     // max minutes between consecutive points
-  maxSpeedKmh: 500,   // Shaheds ~185 km/h, cruise missiles ~800 — but post lag
-                      // compresses apparent time, so allow a generous ceiling
-  maxTurnDeg: 100,    // max change of course between successive legs
-  minPointKm: 12,     // closer than this to the last point = same place, merge
+  maxLegKm: 180,      // max distance between consecutive points of one track —
+                      // tight so we don't chain unrelated cross-country reports
+  maxGapMin: 50,      // max minutes between consecutive points
+  maxSpeedKmh: 350,   // a Shahed cruises ~180 km/h; reject implausibly fast legs
+  maxTurnDeg: 70,     // max change of course between successive legs
+  minPointKm: 8,      // closer than this to the last point = same place, merge
 };
 
 function toRad(d) { return (d * Math.PI) / 180; }

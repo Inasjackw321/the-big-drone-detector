@@ -22,16 +22,17 @@ function sig(lat, lon, min, extra = {}) {
 }
 
 test('chains sequential nearby sightings into one track', () => {
-  // Tula → Ryazan → Murom: a consistent ENE course, ~35 min legs.
+  // Tula → Ryazan → Kasimov: a consistent ENE course with realistic ~130 km
+  // drone legs, ~35 min apart.
   const tracks = buildTracks([
     sig(54.19, 37.62, 0, { location: 'Tula' }),
     sig(54.63, 39.69, 35, { location: 'Ryazan' }),
-    sig(55.57, 42.05, 70, { location: 'Murom' }),
+    sig(55.30, 41.30, 70, { location: 'Kasimov' }),
   ]);
   assert.equal(tracks.length, 1);
   assert.equal(tracks[0].points.length, 3);
   assert.equal(tracks[0].points[0].location, 'Tula');
-  assert.equal(tracks[0].points[2].location, 'Murom');
+  assert.equal(tracks[0].points[2].location, 'Kasimov');
   assert.ok(tracks[0].distanceKm > 100);
 });
 

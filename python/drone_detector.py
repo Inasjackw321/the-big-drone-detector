@@ -864,10 +864,17 @@ def resolve_movement(sighting, geo, geocoder):
 
 
 # ---- track builder (port of tracks.js) ----
-TRACK_CFG = {"maxLegKm": 450, "maxGapMin": 100, "maxSpeedKmh": 500, "maxTurnDeg": 100, "minPointKm": 12}
-# Jets cover far more ground between reports than a Shahed, so allow longer
-# legs and higher speeds when chaining aircraft.
-CLASS_CAPS = {"aircraft": {"maxLegKm": 900, "maxSpeedKmh": 1800}}
+# Tight, realistic limits so we only chain reports that plausibly belong to the
+# SAME object. A Shahed can't jump 450 km between two reports, so short local
+# legs only — this prevents the giant cross-country "arrows" that connected
+# unrelated same-heading sightings.
+TRACK_CFG = {"maxLegKm": 180, "maxGapMin": 50, "maxSpeedKmh": 350, "maxTurnDeg": 70, "minPointKm": 8}
+# Jets cover far more ground between reports than a Shahed; cruise missiles are
+# in between. Per-class overrides for the distance/speed caps.
+CLASS_CAPS = {
+    "aircraft": {"maxLegKm": 600, "maxSpeedKmh": 1500},
+    "missile": {"maxLegKm": 350, "maxSpeedKmh": 1000},
+}
 POSITION_STATUSES = {"approaching", "overhead", "unknown"}
 TERMINAL_STATUSES = {"shot_down", "impact"}
 
