@@ -406,7 +406,7 @@ function renderMarkers(sightings, tracks) {
 }
 
 // ---- moving drones: dead-reckon toward the destination between updates ----
-const DRONE_KMH = 160;            // nominal Shahed cruise
+const DRONE_KMH = (window.DDX_DRONE_KMH | 0) || 160;   // nominal Shahed cruise
 function registerMover(s, marker, label, asOf) {
   if (s.threatType !== 'drone') return;
   if (s.status !== 'approaching' && s.status !== 'overhead') return;
@@ -415,7 +415,10 @@ function registerMover(s, marker, label, asOf) {
   const dest = confidentDest(s);
   const maxKm = dest ? haversineKm(s.lat, s.lon, dest.lat, dest.lon) : 120;
   if (maxKm < 3) return;
-  state.movers.push({ marker, label, fromLat: s.lat, fromLon: s.lon, brg,
+  // A dashed "wake" from the last known spot to the live position makes the
+  // advance obvious even when the per-second creep is small.
+  const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: TRACK_COLORS.drone, weight: 1.6, opacity: 0.7, dashArray: '4 5', interactive: false }).addTo(markersLayer);
+  state.movers.push({ marker, label, wake, fromLat: s.lat, fromLon: s.lon, brg,
     destLat: dest ? dest.lat : null, destLon: dest ? dest.lon : null, maxKm, postT: Date.parse(s.timestamp || '') || asOf });
 }
 function animateMovers() {
@@ -428,6 +431,7 @@ function animateMovers() {
       const [la, lo] = projectPoint(m.fromLat, m.fromLon, m.brg, dist);
       m.marker.setLatLng([la, lo]);
       if (m.label) m.label.setLatLng([la, lo]);
+      if (m.wake) m.wake.setLatLngs([[m.fromLat, m.fromLon], [la, lo]]);
     }
   }
   requestAnimationFrame(animateMovers);

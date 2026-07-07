@@ -1,7 +1,8 @@
-# The app runs on the Python standard library alone and opens in your browser —
-# no pip install needed.
+# The Big Drone Detector runs on the Python standard library alone — no pip
+# install is strictly required.
 #
-# OPTIONAL: for a standalone desktop window instead of a browser tab, install
-# pywebview and run with DDX_NATIVE=1:
-#   pip install pywebview
-# pywebview>=5.0
+# The one optional dependency turns it into a standalone DESKTOP APP window
+# instead of a browser tab. Once it's installed, `python drone_detector.py`
+# opens the app in its own window automatically (DDX_NATIVE=auto, the default).
+# Force the window with DDX_NATIVE=1, or force the browser with DDX_NATIVE=0.
+pywebview>=5.0

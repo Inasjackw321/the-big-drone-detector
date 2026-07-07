@@ -13,18 +13,21 @@ track to a single object.
 
 ## Requirements
 
-- **Python 3.8+** (standard library only — no `pip install` needed)
+- **Python 3.8+** (standard library only for the core)
 - **[Ollama](https://ollama.com)** running locally with the model pulled:
 
   ```sh
   ollama pull gemma3:12b   # or gemma3:4b for a ~3x faster, slightly less precise run
   ollama serve            # usually already running after install
   ```
+- **Optional, recommended:** `pip install pywebview` to run it as a **standalone
+  desktop app** window instead of a browser tab (see below).
 
 ## Run
 
 ```sh
 cd python
+pip install pywebview        # optional — makes it a desktop app window
 python drone_detector.py
 ```
 
@@ -32,13 +35,15 @@ On start it:
 
 1. grabs the **last hour** of messages from every channel and plots them;
 2. checks Ollama is up and the model is installed;
-3. **opens the map in your browser** and **updates every minute** — new
-   messages are extracted, geocoded and their tracks redrawn as they arrive. If
-   the browser doesn't open automatically, the terminal prints the URL to paste
-   in. Press Ctrl+C to stop.
+3. **opens as a standalone app** and **updates every minute** — new messages
+   are extracted, geocoded and their tracks redrawn as they arrive, and moving
+   drones creep toward their destination live. Press Ctrl+C to stop.
 
-> Prefer a standalone desktop window instead of a browser tab? Run
-> `pip install pywebview` and start with `DDX_NATIVE=1 python drone_detector.py`.
+**How it opens** (`DDX_NATIVE`, default `auto`):
+
+- `auto` — its own **desktop app window** when `pywebview` and a display are
+  available, otherwise the browser (so it always opens something).
+- `1` / `app` — force the desktop window · `0` / `browser` — force the browser.
 
 ### Fast loads
 
