@@ -14,11 +14,10 @@
  */
 
 const DEFAULTS = {
-  maxLegKm: 180,      // max distance between consecutive points of one track —
-                      // tight so we don't chain unrelated cross-country reports
-  maxGapMin: 50,      // max minutes between consecutive points
-  maxSpeedKmh: 350,   // a Shahed cruises ~180 km/h; reject implausibly fast legs
-  maxTurnDeg: 70,     // max change of course between successive legs
+  maxLegKm: 280,      // max distance between consecutive points of one track
+  maxGapMin: 90,      // max minutes between consecutive points
+  maxSpeedKmh: 300,   // a Shahed cruises ~180 km/h; reject implausibly fast legs
+  maxTurnDeg: 120,    // allow winding/looping paths, but not full reversals
   minPointKm: 8,      // closer than this to the last point = same place, merge
 };
 

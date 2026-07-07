@@ -20,12 +20,14 @@ const STATUS_INFO = {
 function statusInfo(s) { return STATUS_INFO[s && s.status] || STATUS_INFO.unknown; }
 const CHANNEL_COLORS = { radarrussiia: '#ff5c5c', kpszsu: '#4fb6ff', lpr1_treugolnik: '#ff9f3d' };
 const TRACK_COLORS = { drone: '#ff4fd8', aircraft: '#8fd6ff', missile: '#ffb03d', other: '#8aa8c8' };
-// Live view = last hour only: a marker or track older than this disappears
-// (the timeline can still replay the full retained history).
+// Markers (current positions) show only the last hour. Tracks show the whole
+// recent flight PATH (up to 6h of waypoints) so long winding routes stay
+// visible like a radar console — but a track vanishes once its object hasn't
+// been reported for an hour. The timeline can still replay full history.
 const DISPLAY_WINDOW_MS = 60 * 60 * 1000;
-const TRACK_KEEP_MS = 60 * 60 * 1000;
-const TRAIL_POINTS = 12; // radar tail: cap positions shown, so the line advances
-                         // and the oldest point drops off as it moves
+const TRACK_WINDOW_MS = 6 * 3600 * 1000;   // how much of each path to draw
+const TRACK_EXPIRE_MS = 60 * 60 * 1000;    // drop the track 1h after its last report
+const TRAIL_POINTS = 60;                    // show the full winding path, not a stub
 
 const state = {
   sightings: [], tracks: [], filter: 'all', hasAutoZoomed: false,
@@ -66,12 +68,17 @@ function supersedeWithAllClears(list) { const cleared = new Map(); for (const s 
 function consolidateByLocation(list) { const groups = new Map(); for (const s of list) { const key = normPlace(s.location) + '|' + normPlace(s.region); if (!groups.has(key)) groups.set(key, []); groups.get(key).push(s); } const out = []; for (const arr of groups.values()) { arr.sort((a, b) => (Date.parse(b.timestamp || '') || 0) - (Date.parse(a.timestamp || '') || 0)); const rep = Object.assign({}, arr[0]); rep.reports = arr.length; rep.sources = [...new Set(arr.map((s) => s.channel).filter(Boolean))]; if (rep.count == null) { const c = arr.map((s) => s.count).filter((n) => typeof n === 'number'); rep.count = c.length ? Math.max.apply(null, c) : null; } out.push(rep); } return out; }
 function sightingsAsOf(asOf) { const lo = asOf - DISPLAY_WINDOW_MS; const w = state.sightings.filter((s) => { if (typeof s.lat !== 'number' || typeof s.lon !== 'number') return false; const t = Date.parse(s.timestamp || '') || 0; return t > 0 && t <= asOf && t >= lo; }).filter((s) => typeof s.confidence !== 'number' || s.confidence >= 0.3); return consolidateByLocation(supersedeWithAllClears(w)); }
 function tracksAsOf(asOf) {
-  const lo = asOf - TRACK_KEEP_MS; // only the last hour of the path is shown
+  const winLo = asOf - TRACK_WINDOW_MS;
   const out = [];
   for (const t of state.tracks) {
-    const pts = (t.points || []).filter((p) => { const tm = Date.parse(p.time) || 0; return tm <= asOf && tm >= lo; });
-    if (pts.length < 2) continue; // a track with <2 points in the last hour has expired
-    out.push(Object.assign({}, t, { points: pts, firstSeen: pts[0].time, lastSeen: pts[pts.length - 1].time, ended: t.ended && pts.length === t.points.length }));
+    const upto = (t.points || []).filter((p) => (Date.parse(p.time) || 0) <= asOf);
+    if (upto.length < 3) continue; // real paths only — never a straight 2-point line
+    const headT = Date.parse(upto[upto.length - 1].time) || 0;
+    if (asOf - headT > TRACK_EXPIRE_MS) continue; // object not reported for >1h → gone
+    // Draw up to the last 6h of the path (keeps long winding routes visible).
+    const pts = upto.filter((p) => (Date.parse(p.time) || 0) >= winLo);
+    if (pts.length < 2) continue;
+    out.push(Object.assign({}, t, { points: pts, firstSeen: pts[0].time, lastSeen: pts[pts.length - 1].time, ended: t.ended && pts.length === upto.length }));
   }
   return out;
 }
@@ -98,7 +105,7 @@ function buildIcon(s) {
   const info = statusInfo(s), color = info.color;
   const isWarn = info.warn, isDanger = info.level >= 3, count = Math.max(1, s.count || 1);
   // Danger markers are noticeably bigger so warnings pop out at a glance.
-  const scale = isDanger ? 1.4 : isWarn ? 1.12 : 1.0, gR = 7.8 * scale;
+  const scale = isDanger ? 1.5 : isWarn ? 1.22 : 1.05, gR = 7.8 * scale;
   const showCount = count > 1, label = '×' + count;
   const labelW = showCount ? label.length * 7 + 12 : 0, gap = 6, half = showCount ? 10 : 0;
   const ringR = isDanger ? gR + 7 : gR, m = 5;
@@ -233,35 +240,33 @@ function renderTracks(tracks) {
   const asOf = currentAsOf();
   for (const t of tracks) {
     if (!trackMatchesFilter(t)) continue;
-    // Radar tail: only the last N positions — as new points arrive the head
-    // advances and the oldest point drops off the tail.
     const pts = t.points.slice(-TRAIL_POINTS);
     if (pts.length < 2) continue;
     const ll = pts.map((p) => [p.lat, p.lon]);
     const color = TRACK_COLORS[t.threatClass] || TRACK_COLORS.other;
     const ageH = Math.max(0, (asOf - (Date.parse(pts[pts.length - 1].time) || asOf)) / 3600000);
-    const headAlpha = Math.max(0.2, 0.95 - ageH * 0.07);
+    const headAlpha = Math.max(0.35, 0.95 - ageH * 0.09);
 
-    // Wide invisible line carries the hover tooltip.
-    L.polyline(ll, { color, weight: 9, opacity: headAlpha * 0.14 }).addTo(tracksLayer)
+    // Soft glow under the whole path + the hover tooltip target.
+    L.polyline(ll, { color, weight: 6, opacity: headAlpha * 0.18 }).addTo(tracksLayer)
       .bindTooltip(trackTooltip(t), { sticky: true, className: 'trk-tip', opacity: 1 });
 
-    // Fading trail: each segment brightens toward the head so the tail
-    // dissolves behind the moving object.
+    // The full winding path stays clearly visible; it only brightens gently
+    // toward the head (radar-console look), never fading to nothing.
     const n = ll.length;
     for (let i = 1; i < n; i++) {
       const frac = i / (n - 1);
-      L.polyline([ll[i - 1], ll[i]], { color, weight: 1.2 + 1.4 * frac, opacity: headAlpha * (0.12 + 0.88 * frac), interactive: false }).addTo(tracksLayer);
+      L.polyline([ll[i - 1], ll[i]], { color, weight: 1.6 + 1.0 * frac, opacity: headAlpha * (0.55 + 0.45 * frac), interactive: false }).addTo(tracksLayer);
     }
+    // Small waypoint dots so each reported position is legible.
     for (let i = 0; i < n; i++) {
-      const frac = i / (n - 1);
-      L.circleMarker(ll[i], { radius: 1.5 + frac * 1.3, color, fillColor: color, fillOpacity: headAlpha * (0.15 + 0.85 * frac), weight: 0, opacity: 0, interactive: false }).addTo(tracksLayer);
+      L.circleMarker(ll[i], { radius: 1.6, color, fillColor: color, fillOpacity: headAlpha * 0.9, weight: 0, opacity: 0, interactive: false }).addTo(tracksLayer);
     }
 
-    // Arrowhead + id/speed label at the head.
+    // Arrowhead + id/speed label at the current head.
     const a = ll[n - 2], b = ll[n - 1], brg = bearingTo(a[0], a[1], b[0], b[1]);
     L.marker(b, { icon: arrowheadIcon(brg, color), interactive: false, keyboard: false, opacity: headAlpha }).addTo(tracksLayer);
-    if (t.code) L.marker(b, { icon: trackHeadLabel(t, color), interactive: false, keyboard: false, opacity: headAlpha }).addTo(tracksLayer);
+    if (t.code) L.marker(b, { icon: trackHeadLabel(t, color), interactive: false, keyboard: false, opacity: Math.min(1, headAlpha + 0.1) }).addTo(tracksLayer);
   }
 }
 const TCLASS_ICON = { drone: '✈', aircraft: '🛩', missile: '▲' };

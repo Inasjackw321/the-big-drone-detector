@@ -864,16 +864,18 @@ def resolve_movement(sighting, geo, geocoder):
 
 
 # ---- track builder (port of tracks.js) ----
-# Tight, realistic limits so we only chain reports that plausibly belong to the
-# SAME object. A Shahed can't jump 450 km between two reports, so short local
-# legs only — this prevents the giant cross-country "arrows" that connected
-# unrelated same-heading sightings.
-TRACK_CFG = {"maxLegKm": 180, "maxGapMin": 50, "maxSpeedKmh": 350, "maxTurnDeg": 70, "minPointKm": 8}
+# Chain reports into a real flight PATH: legs must be plausible for the object,
+# and — crucially — a track needs 3+ waypoints to be drawn. That kills the
+# straight "2-point line" artifacts (two distant reports joined by a bar) while
+# still letting a Shahed's many sequential hops build a long winding route.
+# The speed cap is the real guard against teleports (joining unrelated reports).
+TRACK_CFG = {"maxLegKm": 280, "maxGapMin": 90, "maxSpeedKmh": 300, "maxTurnDeg": 120,
+             "minPointKm": 8, "minPoints": 3}
 # Jets cover far more ground between reports than a Shahed; cruise missiles are
 # in between. Per-class overrides for the distance/speed caps.
 CLASS_CAPS = {
-    "aircraft": {"maxLegKm": 600, "maxSpeedKmh": 1500},
-    "missile": {"maxLegKm": 350, "maxSpeedKmh": 1000},
+    "aircraft": {"maxLegKm": 700, "maxSpeedKmh": 1500},
+    "missile": {"maxLegKm": 450, "maxSpeedKmh": 1100},
 }
 POSITION_STATUSES = {"approaching", "overhead", "unknown"}
 TERMINAL_STATUSES = {"shot_down", "impact"}
@@ -979,7 +981,7 @@ def build_tracks(sightings):
             nid += 1
     out = []
     for t in tracks:
-        if len(t["points"]) < 2:
+        if len(t["points"]) < TRACK_CFG["minPoints"]:  # 3+ waypoints = a real path
             continue
         dist = sum(haversine_km(t["points"][i - 1]["lat"], t["points"][i - 1]["lon"],
                                 t["points"][i]["lat"], t["points"][i]["lon"])
