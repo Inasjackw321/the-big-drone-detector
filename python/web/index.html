@@ -10,6 +10,16 @@
       html, body { height: 100%; background: #0a1622; overflow: hidden; font-family: "Inter", -apple-system, "Segoe UI", Roboto, Arial, sans-serif; -webkit-font-smoothing: antialiased; }
       #map { position: absolute; inset: 0; }
 
+      /* ---- radar sweep + range rings (blends only with the map below it) ---- */
+      #radarFx { position: absolute; inset: 0; z-index: 405; pointer-events: none; overflow: hidden; mix-blend-mode: screen; }
+      #radarFx.off { display: none; }
+      #radarFx .rings, #radarFx .sweep { position: absolute; left: 50%; top: 50%; width: 240vmax; height: 240vmax; transform: translate(-50%, -50%); border-radius: 50%; }
+      #radarFx .rings { background: repeating-radial-gradient(circle at center, rgba(110,225,180,0.08) 0 1.5px, transparent 1.5px 104px); opacity: 0.9; }
+      #radarFx .sweep { transform-origin: center; animation: radarSweep 4s linear infinite;
+        background: conic-gradient(from 0deg, rgba(90,255,180,0) 0deg 240deg, rgba(90,255,180,0.05) 300deg, rgba(120,255,205,0.12) 344deg, rgba(165,255,222,0.34) 358deg, rgba(200,255,232,0.46) 360deg); }
+      @keyframes radarSweep { to { transform: translate(-50%, -50%) rotate(360deg); } }
+      @media (prefers-reduced-motion: reduce) { #radarFx .sweep { animation: none; } }
+
       .hdr { position: absolute; top: 0; left: 0; right: 0; height: 48px; z-index: 1100; display: flex; align-items: center; gap: 12px; padding: 0 14px; background: linear-gradient(180deg, rgba(13,26,42,0.96), rgba(9,18,30,0.92)); border-bottom: 1px solid #223a52; box-shadow: 0 2px 14px rgba(0,0,0,0.4); backdrop-filter: blur(8px); color: #cde0f5; font-size: 13px; }
       .hdr .title { font-weight: 700; color: #fff; letter-spacing: 0.2px; font-size: 14px; }
       .hdr-status { flex: 1; color: #8ab0d0; font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -178,6 +188,7 @@
   </head>
   <body>
     <div id="map"></div>
+    <div id="radarFx"><div class="rings"></div><div class="sweep"></div></div>
 
     <header class="hdr">
       <span class="dot" id="statusDot"></span>
@@ -217,6 +228,7 @@
       </div>
       <div class="chip-row" id="layerBar">
         <button class="chip" data-layer="tracks">〰 Tracks</button>
+        <button class="chip" data-layer="radar">◉ Radar</button>
         <button class="chip" data-layer="zones">◎ Zones</button>
         <button class="chip" data-layer="bases">✈ Bases</button>
         <button class="chip" data-layer="labels">Aa Labels</button>

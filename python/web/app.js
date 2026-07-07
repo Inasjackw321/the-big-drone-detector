@@ -31,7 +31,7 @@ const TRAIL_POINTS = 60;                    // show the full winding path, not a
 
 const state = {
   sightings: [], tracks: [], filter: 'all', hasAutoZoomed: false,
-  layers: (() => { const d = { tracks: true, zones: true, bases: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
+  layers: (() => { const d = { tracks: true, zones: true, bases: true, radar: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
   timeline: { live: true, asOf: Date.now(), playing: false, speed: 300 },
   autoTranslate: (() => { try { return localStorage.getItem('ddx-translate') === '1'; } catch { return false; } })(),
 };
@@ -350,7 +350,7 @@ const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, crossOrigin: 'anonymous', attribution: '© OpenStreetMap © CARTO' }).addTo(map);
 const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), basesLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
 const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, bases: basesLayer, labels: labelsLayer };
-function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
+function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; const rfx = document.getElementById('radarFx'); if (rfx) rfx.classList.toggle('off', !state.layers.radar); document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
 map.on('popupopen', (e) => wirePopupTranslate(e.popup));
 map.on('zoomend', () => { if (state.layers.bases) renderBases(); });
 
@@ -398,40 +398,63 @@ function renderMarkers(sightings, tracks) {
     mk._s = s; // let the popup-open handler reach this sighting for translation
     pts.push([s.lat, s.lon]);
     const label = L.tooltip({ permanent: true, direction: 'bottom', className: 'place-label', offset: [0, 14], interactive: false }).setContent(`<span style="color:${color}">${esc(s.location)}</span>`).setLatLng([s.lat, s.lon]).addTo(labelsLayer);
-    // A drone with a known heading/destination slowly creeps that way from its
-    // last known spot (dead reckoning), so the map shows it advancing live.
-    if (state.timeline.live) registerMover(s, mk, label, asOf);
+    // A drone with a known heading/destination flies that way from its last
+    // known spot, so the map shows it advancing live like a radar blip.
+    if (state.timeline.live) registerMover(s, mk, label, opacity, tracks);
   }
   if (!state.hasAutoZoomed && pts.length) { const ap = toShow.filter((s) => statusInfo(s).warn).map((s) => [s.lat, s.lon]); map.fitBounds(ap.length ? ap : pts, { padding: [80, 80], maxZoom: 9 }); state.hasAutoZoomed = true; }
 }
 
-// ---- moving drones: dead-reckon toward the destination between updates ----
-const DRONE_KMH = (window.DDX_DRONE_KMH | 0) || 160;   // nominal Shahed cruise
-function registerMover(s, marker, label, asOf) {
+// ---- moving drones: radar blips fly along their vector toward the target ----
+// A drone with a known destination (or heading, or a track direction) sweeps
+// from its last known spot toward that target on a continuous ~24 s loop, like
+// a radar plotting the projected track — so movement is always visible, at any
+// zoom, regardless of the post's age. It leaves a fading wake behind it.
+const FLIGHT_MS = (window.DDX_FLIGHT_MS | 0) || 24000;
+function moverBearing(s, tracks) {
+  const b = resolveBearing(s);
+  if (b !== null) return b;
+  // Fall back to the direction of the object's own track (last leg).
+  if (tracks) for (const t of tracks) {
+    if (t.threatClass !== 'drone' || t.points.length < 2) continue;
+    const h = t.points[t.points.length - 1];
+    if (haversineKm(s.lat, s.lon, h.lat, h.lon) < 8) {
+      const a = t.points[t.points.length - 2];
+      return bearingTo(a.lat, a.lon, h.lat, h.lon);
+    }
+  }
+  return null;
+}
+function registerMover(s, marker, label, base, tracks) {
   if (s.threatType !== 'drone') return;
   if (s.status !== 'approaching' && s.status !== 'overhead') return;
-  const brg = resolveBearing(s);
-  if (brg === null) return;
   const dest = confidentDest(s);
-  const maxKm = dest ? haversineKm(s.lat, s.lon, dest.lat, dest.lon) : 120;
-  if (maxKm < 3) return;
-  // A dashed "wake" from the last known spot to the live position makes the
-  // advance obvious even when the per-second creep is small.
-  const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: TRACK_COLORS.drone, weight: 1.6, opacity: 0.7, dashArray: '4 5', interactive: false }).addTo(markersLayer);
-  state.movers.push({ marker, label, wake, fromLat: s.lat, fromLon: s.lon, brg,
-    destLat: dest ? dest.lat : null, destLon: dest ? dest.lon : null, maxKm, postT: Date.parse(s.timestamp || '') || asOf });
+  const brg = moverBearing(s, tracks);
+  if (!dest && brg === null) return;          // we don't know where it's flying
+  const totalKm = dest ? Math.min(420, haversineKm(s.lat, s.lon, dest.lat, dest.lon)) : 170;
+  if (totalKm < 4) return;
+  const target = dest ? [dest.lat, dest.lon] : projectPoint(s.lat, s.lon, brg, totalKm);
+  const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: TRACK_COLORS.drone, weight: 1.8, opacity: 0.75, dashArray: '3 5', interactive: false }).addTo(markersLayer);
+  state.movers.push({ marker, label, wake, base: base == null ? 1 : base,
+    fromLat: s.lat, fromLon: s.lon, toLat: target[0], toLon: target[1], startT: Date.now() });
 }
 function animateMovers() {
   const movers = state.movers || [];
   if (movers.length && state.timeline.live && !state.recording) {
     const now = Date.now();
     for (const m of movers) {
-      const dist = Math.min(m.maxKm, DRONE_KMH * Math.max(0, (now - m.postT) / 3600000));
-      if (dist < 0.2) continue;
-      const [la, lo] = projectPoint(m.fromLat, m.fromLon, m.brg, dist);
+      const p = ((now - m.startT) % FLIGHT_MS) / FLIGHT_MS;        // 0→1 loop
+      const la = m.fromLat + (m.toLat - m.fromLat) * p;
+      const lo = m.fromLon + (m.toLon - m.fromLon) * p;
       m.marker.setLatLng([la, lo]);
       if (m.label) m.label.setLatLng([la, lo]);
-      if (m.wake) m.wake.setLatLngs([[m.fromLat, m.fromLon], [la, lo]]);
+      // wake trails the last ~40% of the flown path so it reads as a comet.
+      const wp = Math.max(0, p - 0.4);
+      m.wake.setLatLngs([[m.fromLat + (m.toLat - m.fromLat) * wp, m.fromLon + (m.toLon - m.fromLon) * wp], [la, lo]]);
+      // fade in at the start of the loop and out at the end to hide the reset.
+      const fade = Math.min(1, p / 0.10, (1 - p) / 0.10);
+      m.marker.setOpacity(m.base * fade);
+      m.wake.setStyle({ opacity: 0.75 * fade });
     }
   }
   requestAnimationFrame(animateMovers);

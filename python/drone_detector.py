@@ -4,7 +4,7 @@ The Big Drone Detector — local Python app.
 
 Tracks Russian/Ukrainian aerial threats (drones, Shaheds, cruise & ballistic
 missiles) from public Telegram channels. Reading runs locally through an
-Ollama model (default gemma3:12b) that classifies each object's type and
+Ollama model (default gemma4:12b) that classifies each object's type and
 separates distinct objects in a post; results are geocoded offline, correlated
 into per-object flight tracks, and served to a live dark map with a timeline.
 
@@ -18,7 +18,7 @@ until you close the window / press Ctrl+C. Results are cached on disk, so the
 map repaints instantly on the next launch and only NEW posts are extracted.
 
 Requirements: Python 3.8+, and Ollama running with the model pulled:
-    ollama pull gemma3:12b
+    ollama pull gemma4:12b
     ollama serve
 
 For the native window (recommended):  pip install pywebview
@@ -79,9 +79,9 @@ CONFIG = {
     "ollama_url": env("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
     # A capable general instruction model reads the posts far more accurately
     # than a translation-only model — it classifies threat type, separates
-    # distinct objects and geocodes far better. gemma3:12b is the default;
-    # gemma3:4b is ~3x faster if you want speed over precision.
-    "ollama_model": env("OLLAMA_MODEL", "gemma3:12b"),
+    # distinct objects and geocodes far better. gemma4:12b is the default;
+    # any pulled Ollama model works (gemma3:12b / gemma3:4b for older/faster).
+    "ollama_model": env("OLLAMA_MODEL", "gemma4:12b"),
     "verify": env("DDX_VERIFY", "1") not in ("0", "false", "no"),
     "channels": [c.strip() for c in env(
         "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik,locatorru").split(",") if c.strip()],
