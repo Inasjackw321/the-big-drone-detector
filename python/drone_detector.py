@@ -82,7 +82,7 @@ CONFIG = {
         "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik").split(",") if c.strip()],
     "backfill_hours": float(env("DDX_BACKFILL_HOURS", "48")),
     "history_hours": float(env("DDX_HISTORY_HOURS", "48")),
-    "poll_seconds": int(env("POLL_INTERVAL_SECONDS", "120")),
+    "poll_seconds": int(env("POLL_INTERVAL_SECONDS", "45")),
     "backfill_max_pages": int(env("DDX_BACKFILL_MAX_PAGES", "40")),
     "max_new_posts": int(env("DDX_MAX_POSTS", "80")),
     "port": int(env("DDX_PORT", "8700")),
@@ -103,8 +103,9 @@ CONFIG = {
     # newer than this many hours — keeps current threats accurate while old
     # history loads fast. Live polling always verifies.
     "verify_recent_hours": float(env("DDX_VERIFY_RECENT_HOURS", "6")),
-    # Open a native desktop window (pywebview) instead of the browser.
-    "native": env("DDX_NATIVE", "1") not in ("0", "false", "no"),
+    # Open in your browser by default. Set DDX_NATIVE=1 for a standalone
+    # desktop window instead (requires: pip install pywebview).
+    "native": env("DDX_NATIVE", "0") not in ("0", "false", "no"),
     # If Ollama can't be reached, fall back to the deterministic parser so the
     # app still works (less accurate, but never blank).
     "allow_heuristic_only": env("DDX_ALLOW_HEURISTIC_ONLY", "1") not in ("0", "false", "no"),
@@ -1207,15 +1208,23 @@ class Pipeline:
                     log(f"poll fetch failed: {e}")
 
         if fresh_all:
+            # Newest first + write incrementally, so a fresh position shows on
+            # the map as soon as it's extracted instead of after the whole batch.
+            fresh_all.sort(key=lambda p: parse_iso(p.get("date")), reverse=True)
+            done = 0
             with ThreadPoolExecutor(max_workers=CONFIG["concurrency"]) as ex:
                 results = {ex.submit(self.process_post, p): p for p in fresh_all}
                 for fut in as_completed(results):
                     post = results[fut]
                     try:
-                        new += len(fut.result())
+                        created = fut.result()
+                        new += len(created)
+                        if created:
+                            self.write_outputs()  # push the update immediately
                     except Exception as e:
                         log(f"poll extract failed for {post.get('postId')}: {e}")
                     self.store.set_last(post["channel"], post["postId"])
+                    done += 1
 
         self.store.prune(CONFIG["history_hours"])
         self.write_outputs()
@@ -1481,12 +1490,12 @@ def main():
     log("The Big Drone Detector — local app")
     log(f"  AI backend : Ollama {CONFIG['ollama_model']} @ {CONFIG['ollama_url']}")
     log(f"  Channels   : {', '.join(CONFIG['channels'])}")
-    log(f"  Backfill   : last {CONFIG['backfill_hours']:.0f}h on startup")
+    log(f"  Backfill   : last {CONFIG['backfill_hours']:.0f}h · poll every {CONFIG['poll_seconds']}s")
     log(f"  Cache      : {STATE_FILE}")
     log(f"  URL        : {url}")
     log("=" * 60)
 
-    # Prefer a real native window (pywebview). Fall back to the browser.
+    # Native desktop window only when explicitly requested (DDX_NATIVE=1).
     if CONFIG["native"]:
         try:
             import webview  # type: ignore
@@ -1497,12 +1506,12 @@ def main():
             log("window closed — shutting down.")
             return
         except ImportError:
-            log("pywebview not installed — falling back to the browser.")
-            log("  For the native app window, run:  pip install pywebview")
+            log("pywebview not installed — opening the browser instead.")
         except Exception as e:
-            log(f"native window failed ({e}) — falling back to the browser.")
+            log(f"native window failed ({e}) — opening the browser instead.")
 
-    log("Opening the map in your browser. Ctrl+C to stop.")
+    log(f"Opening the map in your browser: {url}")
+    log("(If it didn't open, paste that URL into your browser.) Ctrl+C to stop.")
     try:
         webbrowser.open(url)
     except Exception:

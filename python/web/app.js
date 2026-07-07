@@ -461,10 +461,16 @@ async function fetchJson(url) { const r = await fetch(url + '?t=' + Date.now());
 async function refreshData() {
   try {
     const [sd, td] = await Promise.all([fetchJson('data/sightings.json'), fetchJson('data/tracks.json')]);
+    // Only re-render when the data actually changed — lets us poll fast without
+    // redrawing (and closing open popups) every few seconds for no reason.
+    const stamp = (sd.updatedAt || '') + '|' + (td.updatedAt || '');
+    const changed = stamp !== state._stamp;
+    state._stamp = stamp;
     state.sightings = sd.sightings || []; state.tracks = td.tracks || [];
     if (sd.backend) document.getElementById('backendLabel').textContent = sd.backend;
     if (state.timeline.live) document.getElementById('tlSlider').value = 1000;
-    renderAll();
+    // Always re-render in replay (the clock is moving); in LIVE only on change.
+    if (changed || !state.timeline.live) renderAll();
   } catch { /* keep last good */ }
 }
 async function refreshStatus() {
@@ -475,5 +481,5 @@ async function refreshStatus() {
 applyLayerToggles();
 setTimelineTime(Date.now());
 refreshStatus(); refreshData();
-setInterval(refreshStatus, 3000);
-setInterval(refreshData, 8000);
+setInterval(refreshStatus, 2000);
+setInterval(refreshData, 3500);   // pick up new positions within a few seconds
