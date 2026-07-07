@@ -821,8 +821,12 @@ class OllamaClient:
             req = urllib.request.Request(self.url + "/api/tags")
             with urllib.request.urlopen(req, timeout=6) as r:
                 models = [m.get("name", "") for m in json.load(r).get("models", [])]
-            base = self.model.split(":")[0]
-            return any(m == self.model or m.split(":")[0] == base for m in models), models
+            # Require the EXACT tag we'll send to /api/chat (":latest" implied when
+            # no tag is given). A loose base-name match ("gemma4" ~ "gemma4:2b")
+            # would say yes while /api/chat 404s on the real tag — the cause of
+            # repeated "translate failed: 404" errors.
+            want = self.model if ":" in self.model else self.model + ":latest"
+            return any(m == self.model or m == want for m in models), models
         except Exception:
             return False, []
 
@@ -1342,17 +1346,29 @@ class Pipeline:
     def translate(self, text):
         """English translation of a post (cached). Falls back to the original.
 
-        Goes straight to Ollama even when extraction fell back to the heuristic
-        parser — as long as the model can chat it can translate, so the button
-        keeps working regardless of which parser we chose for extraction."""
+        Only calls Ollama when the LLM is actually usable — otherwise it returns
+        the original text without hitting the server, so a missing model can't
+        produce a stream of 404 errors."""
         text = (text or "").strip()
         if not text:
             return ""
         with _translate_lock:
             if text in _translate_cache:
                 return _translate_cache[text]
+        if not self.use_llm:
+            return text
         try:
             out = self.llm.translate(text) or text
+        except urllib.error.HTTPError as e:
+            # 404 = the model tag isn't pulled. Stop trying for the rest of the
+            # session (one clear line) instead of logging on every popup.
+            if e.code == 404:
+                self.use_llm = False
+                log(f'translate/extract disabled: model "{CONFIG["ollama_model"]}" '
+                    f"returned 404 — pull it with: ollama pull {CONFIG['ollama_model']}")
+            else:
+                log(f"translate failed: {e}")
+            out = text
         except Exception as e:
             log(f"translate failed: {e}")
             out = text

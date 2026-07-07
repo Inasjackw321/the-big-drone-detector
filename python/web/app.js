@@ -31,7 +31,7 @@ const TRAIL_POINTS = 60;                    // show the full winding path, not a
 
 const state = {
   sightings: [], tracks: [], filter: 'all', hasAutoZoomed: false,
-  layers: (() => { const d = { tracks: true, zones: true, bases: true, radar: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
+  layers: (() => { const d = { tracks: true, zones: true, bases: true, labels: false, clock: true }; try { return Object.assign(d, JSON.parse(localStorage.getItem('ddx-layers') || '{}')); } catch { return d; } })(),
   timeline: { live: true, asOf: Date.now(), playing: false, speed: 300 },
   autoTranslate: (() => { try { return localStorage.getItem('ddx-translate') === '1'; } catch { return false; } })(),
 };
@@ -321,7 +321,7 @@ function wirePopupTranslate(popup) {
         if (hasCyrillic && norm(t) === norm(s.postText)) {
           // Model echoed the source untouched → almost certainly no chat model
           // is available to translate. Say so instead of showing the same text.
-          trDiv.innerHTML = `<span class="tr-warn">No translation available — start Ollama with a chat model (e.g. <b>ollama run gemma3:12b</b>).</span>`;
+          trDiv.innerHTML = `<span class="tr-warn">No translation available — pull the model shown in the header (e.g. <b>ollama pull gemma4:12b</b>).</span>`;
         } else {
           trDiv.textContent = t;
         }
@@ -350,7 +350,7 @@ const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.
 L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, crossOrigin: 'anonymous', attribution: '© OpenStreetMap © CARTO' }).addTo(map);
 const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), basesLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
 const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, bases: basesLayer, labels: labelsLayer };
-function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; const rfx = document.getElementById('radarFx'); if (rfx) rfx.classList.toggle('off', !state.layers.radar); document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
+function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
 map.on('popupopen', (e) => wirePopupTranslate(e.popup));
 map.on('zoomend', () => { if (state.layers.bases) renderBases(); });
 
