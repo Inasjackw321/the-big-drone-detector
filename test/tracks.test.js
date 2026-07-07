@@ -123,6 +123,30 @@ test('drones and aircraft do not chain together', () => {
   assert.equal(tracks.length, 0);
 });
 
+test('same post, different object_id never chain (AI separated them)', () => {
+  // Geometrically these would chain (close, consistent course, 20 min apart),
+  // but the AI tagged them as two different objects in the same post — so they
+  // must stay apart (e.g. a missile and the drones mentioned beside it).
+  const tracks = buildTracks([
+    sig(54.0, 37.0, 0, { postId: 5, objectId: 1, location: 'X' }),
+    sig(54.3, 37.8, 20, { postId: 5, objectId: 2, location: 'Y' }),
+  ]);
+  assert.equal(tracks.length, 0);
+});
+
+test('same post + same object_id chains even through a sharp turn', () => {
+  // The turn-angle limit would normally reject the reversal (see the sharp-
+  // reversal test), but when the AI reads all three as ONE object's path we
+  // trust its grouping and keep the chain.
+  const tracks = buildTracks([
+    sig(54.0, 37.0, 0, { postId: 9, objectId: 1 }),
+    sig(54.0, 38.5, 30, { postId: 9, objectId: 1 }),
+    sig(54.0, 37.05, 60, { postId: 9, objectId: 1 }),
+  ]);
+  assert.equal(tracks.length, 1);
+  assert.equal(tracks[0].points.length, 3);
+});
+
 test('two parallel groups produce two tracks', () => {
   const tracks = buildTracks([
     // Group A moving NE

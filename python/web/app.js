@@ -18,7 +18,7 @@ const STATUS_INFO = {
   unknown: { level: 1, color: '#9ab4d0', label: 'Reported', warn: false },
 };
 function statusInfo(s) { return STATUS_INFO[s && s.status] || STATUS_INFO.unknown; }
-const CHANNEL_COLORS = { radarrussiia: '#ff5c5c', kpszsu: '#4fb6ff', lpr1_treugolnik: '#ff9f3d' };
+const CHANNEL_COLORS = { radarrussiia: '#ff5c5c', kpszsu: '#4fb6ff', lpr1_treugolnik: '#ff9f3d', locatorru: '#a78bfa' };
 const TRACK_COLORS = { drone: '#ff4fd8', aircraft: '#8fd6ff', missile: '#ffb03d', other: '#8aa8c8' };
 // Markers (current positions) show only the last hour. Tracks show the whole
 // recent flight PATH (up to 6h of waypoints) so long winding routes stay
@@ -147,7 +147,7 @@ function popupHtml(s) {
   return `<div class="popup-title">${esc(s.location)}</div>${statusLine}${confirm}<div class="popup-meta">${esc(bits.join(' · '))} · ${fmtTime(s.timestamp)}</div>${going}<div class="popup-acc">${acc.join(' · ')}</div>${post}${s.postLink ? `<div class="popup-link"><a href="${esc(s.postLink)}" target="_blank" rel="noopener">Open in Telegram ↗</a></div>` : ''}`;
 }
 
-// ---- translation (on-demand, cached; server calls Ollama translategemma) ----
+// ---- translation (on-demand, cached; server calls the local Ollama model) ----
 const _trCache = new Map();
 async function translateText(text) {
   if (_trCache.has(text)) return _trCache.get(text);
@@ -190,7 +190,7 @@ function wirePopupTranslate(popup) {
 
 // ---- map ----
 const map = L.map('map', { zoomControl: true, preferCanvas: true }).setView([54.5, 42.0], 5);
-L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, attribution: '© OpenStreetMap © CARTO' }).addTo(map);
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { maxZoom: 19, crossOrigin: 'anonymous', attribution: '© OpenStreetMap © CARTO' }).addTo(map);
 const tracksLayer = L.layerGroup().addTo(map), zonesLayer = L.layerGroup().addTo(map), markersLayer = L.layerGroup().addTo(map), labelsLayer = L.layerGroup().addTo(map);
 const LAYER_GROUPS = { tracks: tracksLayer, zones: zonesLayer, labels: labelsLayer };
 function applyLayerToggles() { for (const [k, g] of Object.entries(LAYER_GROUPS)) { if (state.layers[k]) { if (!map.hasLayer(g)) map.addLayer(g); } else if (map.hasLayer(g)) map.removeLayer(g); } document.getElementById('clock').style.display = state.layers.clock ? 'block' : 'none'; document.querySelectorAll('#layerBar .chip[data-layer]').forEach((b) => b.classList.toggle('active', !!state.layers[b.dataset.layer])); }
@@ -468,6 +468,75 @@ function cancelAreaSelect() {
 }
 document.getElementById('dlBtn').addEventListener('click', startAreaSelect);
 
+// ---- session timelapse video ----
+// Replays the map from the earliest data we have up to now, capturing each
+// frame with html2canvas onto a canvas that MediaRecorder encodes to WebM.
+function videoOverlay(text) {
+  const el = document.createElement('div');
+  el.className = 'vid-overlay no-export';
+  el.innerHTML = `<div class="vlabel">${text}</div><div class="vbar"><div class="vfill"></div></div><div class="vhint">Keep this tab in the foreground.</div>`;
+  document.body.appendChild(el);
+  return { setPct(p) { el.querySelector('.vfill').style.width = p + '%'; }, setLabel(t) { el.querySelector('.vlabel').textContent = t; }, remove() { el.remove(); } };
+}
+async function recordVideo() {
+  if (typeof html2canvas !== 'function' || typeof MediaRecorder === 'undefined' || !HTMLCanvasElement.prototype.captureStream) {
+    alert('Video recording is not supported in this browser.'); return;
+  }
+  const { min, max } = historyBounds();
+  if (max - min < 60000) { alert('Not enough history yet — let the app run for a few minutes, then try again.'); return; }
+  const btn = document.getElementById('videoBtn'), orig = btn.textContent;
+  const FRAMES = (window.DDX_VIDEO_FRAMES | 0) || 72, FPS = 12;
+  const W = Math.floor(window.innerWidth), H = Math.floor(window.innerHeight);
+  const canvas = document.createElement('canvas'); canvas.width = W; canvas.height = H;
+  const ctx = canvas.getContext('2d');
+  const stream = canvas.captureStream(0);
+  const vtrack = stream.getVideoTracks()[0];
+  let mime = 'video/webm;codecs=vp9';
+  if (!MediaRecorder.isTypeSupported(mime)) mime = MediaRecorder.isTypeSupported('video/webm;codecs=vp8') ? 'video/webm;codecs=vp8' : 'video/webm';
+  const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 6000000 });
+  const chunks = []; rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+  const stopped = new Promise((res) => { rec.onstop = res; });
+
+  state.recording = true; stopReplay();
+  btn.disabled = true; btn.textContent = '● REC';
+  const ov = videoOverlay('Preparing…');
+  document.body.classList.add('recording');
+  rec.start();
+  try {
+    for (let i = 0; i <= FRAMES; i++) {
+      const t = min + (max - min) * (i / FRAMES);
+      setTimelineTime(t);
+      await new Promise((r) => setTimeout(r, 45)); // let leaflet + tiles settle
+      let shot;
+      try {
+        shot = await html2canvas(document.body, {
+          useCORS: true, backgroundColor: '#0a1622', scale: 1, logging: false, imageTimeout: 8000,
+          ignoreElements: (el) => el.classList && (el.classList.contains('no-export') || el.classList.contains('vid-overlay')),
+        });
+      } catch { shot = null; }
+      if (shot) ctx.drawImage(shot, 0, 0, W, H);
+      vtrack.requestFrame();
+      const pct = Math.round((i / FRAMES) * 100);
+      ov.setLabel(`Rendering timelapse… ${pct}%`); ov.setPct(pct);
+      await new Promise((r) => setTimeout(r, 1000 / FPS));
+    }
+  } finally {
+    rec.stop();
+    await stopped;
+    document.body.classList.remove('recording');
+    state.recording = false;
+    ov.remove(); btn.disabled = false; btn.textContent = orig;
+    goLive();
+    const blob = new Blob(chunks, { type: 'video/webm' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `drone-timelapse-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.webm`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
+  }
+}
+document.getElementById('videoBtn').addEventListener('click', recordVideo);
+
 // ---- status + data polling ----
 function setStatus(st, msg) { const dot = document.getElementById('statusDot'), text = document.getElementById('statusText'); text.textContent = msg || ''; dot.className = 'dot'; if (st === 'error') dot.classList.add('error'); else if (['polling','processing','backfill','starting'].includes(st)) dot.classList.add('busy'); }
 function showBackfill(s) {
@@ -485,6 +554,7 @@ function showBackfill(s) {
 }
 async function fetchJson(url) { const r = await fetch(url + '?t=' + Date.now()); if (!r.ok) throw new Error(r.status); return r.json(); }
 async function refreshData() {
+  if (state.recording) return; // don't redraw mid-capture
   try {
     const [sd, td] = await Promise.all([fetchJson('data/sightings.json'), fetchJson('data/tracks.json')]);
     // Only re-render when the data actually changed — lets us poll fast without

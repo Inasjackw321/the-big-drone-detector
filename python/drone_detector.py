@@ -3,9 +3,10 @@
 The Big Drone Detector — local Python app.
 
 Tracks Russian/Ukrainian aerial threats (drones, Shaheds, cruise & ballistic
-missiles) from public Telegram channels. Extraction runs locally through an
-Ollama model (default translategemma:12b); results are geocoded offline,
-correlated into flight tracks, and served to a live dark map with a timeline.
+missiles) from public Telegram channels. Reading runs locally through an
+Ollama model (default gemma3:12b) that classifies each object's type and
+separates distinct objects in a post; results are geocoded offline, correlated
+into per-object flight tracks, and served to a live dark map with a timeline.
 
 Run it:
 
@@ -17,7 +18,7 @@ until you close the window / press Ctrl+C. Results are cached on disk, so the
 map repaints instantly on the next launch and only NEW posts are extracted.
 
 Requirements: Python 3.8+, and Ollama running with the model pulled:
-    ollama pull translategemma:12b
+    ollama pull gemma3:12b
     ollama serve
 
 For the native window (recommended):  pip install pywebview
@@ -76,13 +77,20 @@ STATE_FILE = os.path.join(app_data_dir(), "state.json")
 
 CONFIG = {
     "ollama_url": env("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
-    "ollama_model": env("OLLAMA_MODEL", "translategemma:12b"),
+    # A capable general instruction model reads the posts far more accurately
+    # than a translation-only model — it classifies threat type, separates
+    # distinct objects and geocodes far better. gemma3:12b is the default;
+    # gemma3:4b is ~3x faster if you want speed over precision.
+    "ollama_model": env("OLLAMA_MODEL", "gemma3:12b"),
     "verify": env("DDX_VERIFY", "1") not in ("0", "false", "no"),
     "channels": [c.strip() for c in env(
-        "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik").split(",") if c.strip()],
-    "backfill_hours": float(env("DDX_BACKFILL_HOURS", "48")),
-    "history_hours": float(env("DDX_HISTORY_HOURS", "48")),
-    "poll_seconds": int(env("POLL_INTERVAL_SECONDS", "45")),
+        "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik,locatorru").split(",") if c.strip()],
+    # At startup, grab only the last hour of messages and plot them.
+    "backfill_hours": float(env("DDX_BACKFILL_HOURS", "1")),
+    # Retain a longer window so the session timelapse video has material, and
+    # so tracks can keep their recent path. The live map still shows only ~1h.
+    "history_hours": float(env("DDX_HISTORY_HOURS", "24")),
+    "poll_seconds": int(env("POLL_INTERVAL_SECONDS", "60")),
     "backfill_max_pages": int(env("DDX_BACKFILL_MAX_PAGES", "40")),
     "max_new_posts": int(env("DDX_MAX_POSTS", "80")),
     "port": int(env("DDX_PORT", "8700")),
@@ -566,14 +574,15 @@ def analyze_post(text):
 SYSTEM_PROMPT = """You are an OSINT analyst that reads short posts (in Russian OR Ukrainian) from Telegram channels that track aerial threats (UAVs/drones including "Shahed"/"шахед"/"шахід", cruise missiles, ballistic missiles) over the Russian Federation and Ukraine.
 Sources: @radarrussiia (Russian, threats over Russia) and @kpszsu (Ukrainian Air Force, reporting Russian drone/missile strikes on Ukraine). Handle both Russian and Ukrainian wording, and extract Ukrainian place names (e.g. Київ->Kyiv, Харків->Kharkiv, Одеса->Odesa) the same way.
 
-For the given post, extract EVERY distinct geographic sighting/threat mentioned. A single post can contain several locations.
+For the given post, extract EVERY distinct geographic sighting/threat mentioned. A single post can contain several locations, and sometimes several SEPARATE objects.
 
 Return STRICT JSON only matching the given schema.
 
 Rules:
 - If the post is not about an aerial threat (ads, chat, unrelated news), set is_relevant=false and sightings=[].
 - RECAP TOTALS: a Ministry-of-Defense-style summary of totals over a period (e.g. "over the past night air defense destroyed 216 UAVs over Belgorod, Bryansk, Kursk oblasts") is NOT a specific sighting -> is_relevant=false, sightings=[].
-- THREAT TYPE: drones/Shaheds/FPV -> "drone"; crewed aircraft (авиация/самолёт/літак/бомбардировщик/истребитель, helicopters вертолёт, and named jets МиГ/Су/Ту, MiG-31/Kinzhal carriers) -> "aircraft"; cruise missiles (крылатая/крилата) -> "cruise_missile"; ballistic (баллистическая/балістична) -> "ballistic_missile"; other missiles -> "missile".
+- THREAT TYPE — read carefully and classify EACH sighting by its OWN type: drones/Shaheds/FPV/БПЛА/БпЛА/шахед/герань/безпілотник -> "drone"; crewed aircraft (авиация/самолёт/літак/бомбардировщик/истребитель, helicopters вертолёт, and named jets МиГ/Су/Ту, MiG-31/Kinzhal carriers) -> "aircraft"; cruise missiles (крылатая/крилата ракета, Калибр/Х-101/Х-555) -> "cruise_missile"; ballistic (баллистическая/балістична, Искандер/Iskander/КАБ) -> "ballistic_missile"; other rockets/missiles -> "missile". A MISSILE OR ROCKET IS NEVER A DRONE and a drone is never a missile — never merge the two. If one post mentions both a drone and a missile, they are DIFFERENT objects with different threat_type.
+- OBJECT GROUPING (object_id) — a single post often tracks ONE group of objects as it crosses several towns ("БПЛА через Курск, курсом на Орёл"). Give every sighting that belongs to the SAME physical object/group the SAME integer object_id (1, 2, 3…), in the order it travels. Give a DIFFERENT object_id to any separate object — a different drone group, or a missile mentioned alongside drones. Two sightings only share an object_id if the post says they are the same thing moving. When unsure, use a new object_id rather than merging.
 - NEVER use a sea, body of water, or whole country as a location. Only real settlements, raions, oblasts, or airbases.
 - Prefer the most specific place mentioned. If only a region is given, use the region as the location.
 - MOVEMENT: "destination" = the PLACE NAME the threat is moving toward (English), from "курс на X", "в сторону X", "в напрямку X". Prefer the ultimate major target (a city or oblast) over small waypoint villages. "heading" = compass direction ONLY, exactly one of: north, north-east, east, south-east, south, south-west, west, north-west; else null. Never put place names in heading.
@@ -592,6 +601,7 @@ VERIFY_PROMPT = """You are a strict OSINT fact-checker. You are given a Telegram
 Re-read the POST carefully and output a CORRECTED extraction with the same schema:
 - DELETE any sighting whose location is not actually in the post (hallucinations), or that is a sea/whole country, or that merely duplicates a DESTINATION a threat is heading toward.
 - FIX any wrong field: count must appear in the post for that exact place; status must match the wording (отбой->all_clear, сбит/збито->shot_down, прилёт/вибух->impact, работа ПВО/ППО->overhead, опасность/тривога->alert, фиксация/курс/летять->approaching); destination is the place moved TOWARD or null.
+- FIX threat_type: a missile/rocket must NEVER be labelled "drone" and vice-versa — classify each object by its own wording. FIX object_id: sightings of the SAME moving group share one object_id; a separate drone group or a missile mentioned alongside drones gets a DIFFERENT object_id.
 - If a sighting is correct, keep it. If the post is not a specific aerial threat over identifiable places, set is_relevant=false and sightings=[].
 - Lower confidence when unsure; raise it for clear sightings. Output JSON only."""
 
@@ -606,6 +616,7 @@ SCHEMA = {
             "lon": {"type": ["number", "null"]},
             "threat_type": {"type": "string", "enum": ["drone", "aircraft", "missile", "cruise_missile",
                             "ballistic_missile", "explosion", "air_defense", "unknown"]},
+            "object_id": {"type": ["integer", "null"]},
             "count": {"type": ["integer", "null"]},
             "heading": {"type": ["string", "null"], "enum": ["north", "north-east", "east",
                         "south-east", "south", "south-west", "west", "north-west", None]},
@@ -679,6 +690,7 @@ def normalize_extraction(raw):
             "lat": lat if (lat is not None and abs(lat) <= 90) else None,
             "lon": lon if (lon is not None and abs(lon) <= 180) else None,
             "threatType": s.get("threat_type") if s.get("threat_type") in THREAT_TYPES else "unknown",
+            "objectId": s.get("object_id") if isinstance(s.get("object_id"), int) else None,
             "count": s.get("count") if isinstance(s.get("count"), int) else None,
             "heading": str(s["heading"]).strip() if s.get("heading") else None,
             "destination": str(s["destination"]).strip() if s.get("destination") else None,
@@ -691,7 +703,8 @@ def denormalize(ex):
     return {"is_relevant": ex["isRelevant"], "summary": ex["summary"],
             "sightings": [{"location": s["location"], "location_ru": s["locationRu"],
                            "region": s["region"], "lat": s["lat"], "lon": s["lon"],
-                           "threat_type": s["threatType"], "count": s["count"],
+                           "threat_type": s["threatType"], "object_id": s.get("objectId"),
+                           "count": s["count"],
                            "heading": s["heading"], "destination": s["destination"],
                            "status": s["status"], "confidence": s["confidence"]}
                           for s in ex["sightings"]]}
@@ -864,12 +877,12 @@ def resolve_movement(sighting, geo, geocoder):
 
 
 # ---- track builder (port of tracks.js) ----
-# Chain reports into a real flight PATH: legs must be plausible for the object,
-# and — crucially — a track needs 3+ waypoints to be drawn. That kills the
-# straight "2-point line" artifacts (two distant reports joined by a bar) while
-# still letting a Shahed's many sequential hops build a long winding route.
-# The speed cap is the real guard against teleports (joining unrelated reports).
-TRACK_CFG = {"maxLegKm": 280, "maxGapMin": 90, "maxSpeedKmh": 300, "maxTurnDeg": 120,
+# Chain reports into ONE object's flight path. A track only links reports from
+# the SAME source channel (so a Ukrainian sighting is never joined to a Russian
+# one), that keep a consistent heading (no zig-zagging between different drones),
+# at a plausible speed, and it needs 3+ waypoints to be drawn (no straight
+# 2-point bars). The result is a per-drone path, not a merge of unrelated stuff.
+TRACK_CFG = {"maxLegKm": 280, "maxGapMin": 55, "maxSpeedKmh": 300, "maxTurnDeg": 75,
              "minPointKm": 8, "minPoints": 3}
 # Jets cover far more ground between reports than a Shahed; cruise missiles are
 # in between. Per-class overrides for the distance/speed caps.
@@ -934,7 +947,10 @@ def build_tracks(sightings):
         ({"lat": s["lat"], "lon": s["lon"], "t": parse_iso(s["timestamp"]), "time": s["timestamp"],
           "location": s.get("location", ""), "status": s.get("status", "unknown"),
           "count": s.get("count") if isinstance(s.get("count"), int) else None,
-          "cls": threat_class(s.get("threatType"))}
+          "channel": s.get("channel", ""), "cls": threat_class(s.get("threatType")),
+          # Which source post + which object the AI said this is, so two objects
+          # the AI separated inside one post are never chained together.
+          "post": s.get("postId"), "obj": s.get("objectId")}
          for s in sightings if is_trackable(s)),
         key=lambda p: p["t"])
     tracks = []
@@ -945,16 +961,27 @@ def build_tracks(sightings):
         max_speed = caps.get("maxSpeedKmh", TRACK_CFG["maxSpeedKmh"])
         best, best_dist = None, float("inf")
         for trk in tracks:
-            if trk["ended"] or trk["cls"] != p["cls"]:
+            # One track = one object from one source: never join across channels
+            # (e.g. a Ukrainian @kpszsu sighting to a Russian @radarrussiia one).
+            if trk["ended"] or trk["cls"] != p["cls"] or trk["channel"] != p["channel"]:
                 continue
             last = trk["points"][-1]
+            # Same source post but a DIFFERENT object the AI separated → these are
+            # two distinct objects, never one track (a missile ≠ the drones next
+            # to it, drone group #1 ≠ drone group #2). Same object_id → the AI
+            # read them as one thing's path, so trust it and skip the geometry
+            # sanity checks below.
+            same_post = last.get("post") is not None and last.get("post") == p.get("post")
+            if same_post and last.get("obj") != p.get("obj"):
+                continue
+            same_obj = same_post and last.get("obj") is not None and last.get("obj") == p.get("obj")
             dt = (p["t"] - last["t"]) / 60000
             if dt < 0 or dt > TRACK_CFG["maxGapMin"]:
                 continue
             d = haversine_km(last["lat"], last["lon"], p["lat"], p["lon"])
             if d > max_leg:
                 continue
-            if d >= TRACK_CFG["minPointKm"]:
+            if d >= TRACK_CFG["minPointKm"] and not same_obj:
                 if dt > 2 and (d / (dt / 60)) > max_speed:
                     continue
                 if len(trk["points"]) >= 2:
@@ -976,8 +1003,8 @@ def build_tracks(sightings):
             if p["status"] in TERMINAL_STATUSES:
                 best["ended"] = True
         else:
-            tracks.append({"id": f"trk-{nid}", "cls": p["cls"], "points": [p],
-                           "ended": p["status"] in TERMINAL_STATUSES})
+            tracks.append({"id": f"trk-{nid}", "cls": p["cls"], "channel": p["channel"],
+                           "points": [p], "ended": p["status"] in TERMINAL_STATUSES})
             nid += 1
     out = []
     for t in tracks:
@@ -986,7 +1013,7 @@ def build_tracks(sightings):
         dist = sum(haversine_km(t["points"][i - 1]["lat"], t["points"][i - 1]["lon"],
                                 t["points"][i]["lat"], t["points"][i]["lon"])
                    for i in range(1, len(t["points"])))
-        out.append({"id": t["id"], "threatClass": t["cls"],
+        out.append({"id": t["id"], "threatClass": t["cls"], "channel": t.get("channel", ""),
                     "code": track_code(t["points"][0]["time"], t["points"][0]["location"]),
                     "speedKmh": track_speed_kmh(t["points"]),
                     "points": [{"lat": round(p["lat"], 4), "lon": round(p["lon"], 4), "time": p["time"],
@@ -1103,7 +1130,8 @@ class Pipeline:
                 "location": geo["matchedName"], "locationRu": s.get("locationRu", ""),
                 "region": geo["region"] or s.get("region", ""), "lat": geo["lat"], "lon": geo["lon"],
                 "geocodeSource": geo["source"], "geocodePrecision": geo["precision"],
-                "threatType": s["threatType"], "count": s.get("count"), "heading": s.get("heading"),
+                "threatType": s["threatType"], "objectId": s.get("objectId"),
+                "count": s.get("count"), "heading": s.get("heading"),
                 "destination": destination, "destinationLat": d_lat, "destinationLon": d_lon,
                 "bearing": bearing, "status": s["status"], "confidence": s["confidence"]}
             self.store.add(sighting)

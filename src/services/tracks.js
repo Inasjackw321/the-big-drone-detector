@@ -15,9 +15,9 @@
 
 const DEFAULTS = {
   maxLegKm: 280,      // max distance between consecutive points of one track
-  maxGapMin: 90,      // max minutes between consecutive points
+  maxGapMin: 55,      // max minutes between consecutive points
   maxSpeedKmh: 300,   // a Shahed cruises ~180 km/h; reject implausibly fast legs
-  maxTurnDeg: 120,    // allow winding/looping paths, but not full reversals
+  maxTurnDeg: 75,     // keep a consistent heading — no zig-zag between drones
   minPointKm: 8,      // closer than this to the last point = same place, merge
 };
 
@@ -92,6 +92,10 @@ function buildTracks(sightings, opts = {}) {
       channel: s.channel || (s.sources && s.sources[0]) || '',
       count: typeof s.count === 'number' ? s.count : null,
       cls: threatClass(s.threatType),
+      // Which source post + which object the AI said this is, so two objects the
+      // AI separated inside one post are never chained into one track.
+      post: s.postId != null ? s.postId : null,
+      obj: s.objectId != null ? s.objectId : null,
     }))
     .sort((a, b) => a.t - b.t);
 
@@ -105,13 +109,22 @@ function buildTracks(sightings, opts = {}) {
     for (const trk of tracks) {
       if (trk.ended) continue;
       if (trk.cls !== p.cls) continue;
+      // One track = one object from one source — never chain across channels.
+      if (trk.channel !== p.channel) continue;
       const last = trk.points[trk.points.length - 1];
+      // Same source post but a DIFFERENT object the AI separated → two distinct
+      // objects, never one track (a missile ≠ the drones beside it, drone group
+      // #1 ≠ #2). Same object_id → the AI read them as one thing's path, so
+      // trust it and skip the geometry sanity checks below.
+      const samePost = last.post != null && last.post === p.post;
+      if (samePost && last.obj !== p.obj) continue;
+      const sameObj = samePost && last.obj != null && last.obj === p.obj;
       const dtMin = (p.t - last.t) / 60000;
       if (dtMin < 0 || dtMin > cfg.maxGapMin) continue;
       const dKm = haversineKm(last.lat, last.lon, p.lat, p.lon);
       if (dKm > cfg.maxLegKm) continue;
       // Same-spot repeat report → merge into the last point below.
-      if (dKm >= cfg.minPointKm) {
+      if (dKm >= cfg.minPointKm && !sameObj) {
         // Speed plausibility (skip when dt≈0 — posts can share a timestamp).
         if (dtMin > 2 && (dKm / (dtMin / 60)) > cfg.maxSpeedKmh) continue;
         // Course consistency vs the previous leg.
@@ -141,7 +154,7 @@ function buildTracks(sightings, opts = {}) {
       }
       if (TERMINAL_STATUSES.has(p.status)) best.ended = true;
     } else {
-      tracks.push({ id: `trk-${nextId++}`, cls: p.cls, points: [p], ended: TERMINAL_STATUSES.has(p.status) });
+      tracks.push({ id: `trk-${nextId++}`, cls: p.cls, channel: p.channel, points: [p], ended: TERMINAL_STATUSES.has(p.status) });
     }
   }
 
