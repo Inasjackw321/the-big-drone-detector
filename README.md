@@ -8,6 +8,15 @@ live dark map with a **history timeline**.
 
 Everything runs on your machine — no API keys, no cloud, no rate limits.
 
+> **Just want to run it?** The simplest version is a single Python script —
+> no build step, no Electron. See [`python/`](python/README.md):
+> ```sh
+> cd python && python drone_detector.py
+> ```
+> It downloads all history, draws the flight-track map with a timeline, and
+> opens in your browser. The Electron app below is the same thing with a
+> packaged desktop window.
+
 ## Features
 
 - **Local AI extraction** via [Ollama](https://ollama.com) (default
