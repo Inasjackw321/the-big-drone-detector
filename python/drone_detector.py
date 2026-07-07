@@ -4,7 +4,7 @@ The Big Drone Detector — local Python app.
 
 Tracks Russian/Ukrainian aerial threats (drones, Shaheds, cruise & ballistic
 missiles) from public Telegram channels. Reading runs locally through an
-Ollama model (default gemma3:12b) that classifies each object's type and
+Ollama model (default gemma4:12b) that classifies each object's type and
 separates distinct objects in a post; results are geocoded offline, correlated
 into per-object flight tracks, and served to a live dark map with a timeline.
 
@@ -18,7 +18,7 @@ until you close the window / press Ctrl+C. Results are cached on disk, so the
 map repaints instantly on the next launch and only NEW posts are extracted.
 
 Requirements: Python 3.8+, and Ollama running with the model pulled:
-    ollama pull gemma3:12b
+    ollama pull gemma4:12b
     ollama serve
 
 For the native window (recommended):  pip install pywebview
@@ -79,9 +79,9 @@ CONFIG = {
     "ollama_url": env("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/"),
     # A capable general instruction model reads the posts far more accurately
     # than a translation-only model — it classifies threat type, separates
-    # distinct objects and geocodes far better. gemma3:12b is the default;
-    # gemma3:4b is ~3x faster if you want speed over precision.
-    "ollama_model": env("OLLAMA_MODEL", "gemma3:12b"),
+    # distinct objects and geocodes far better. gemma4:12b is the default;
+    # any pulled Ollama model works (gemma3:12b / gemma3:4b for older/faster).
+    "ollama_model": env("OLLAMA_MODEL", "gemma4:12b"),
     "verify": env("DDX_VERIFY", "1") not in ("0", "false", "no"),
     "channels": [c.strip() for c in env(
         "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik,locatorru").split(",") if c.strip()],
@@ -111,9 +111,10 @@ CONFIG = {
     # newer than this many hours — keeps current threats accurate while old
     # history loads fast. Live polling always verifies.
     "verify_recent_hours": float(env("DDX_VERIFY_RECENT_HOURS", "6")),
-    # Open in your browser by default. Set DDX_NATIVE=1 for a standalone
-    # desktop window instead (requires: pip install pywebview).
-    "native": env("DDX_NATIVE", "0") not in ("0", "false", "no"),
+    # How to show the map:  auto (default) = a standalone desktop app window
+    # when pywebview + a display are available, otherwise the browser;
+    # 1/native/app = force the desktop window;  0/browser = force the browser.
+    "native_mode": env("DDX_NATIVE", "auto").strip().lower(),
     # If Ollama can't be reached, fall back to the deterministic parser so the
     # app still works (less accurate, but never blank).
     "allow_heuristic_only": env("DDX_ALLOW_HEURISTIC_ONLY", "1") not in ("0", "false", "no"),
@@ -820,8 +821,12 @@ class OllamaClient:
             req = urllib.request.Request(self.url + "/api/tags")
             with urllib.request.urlopen(req, timeout=6) as r:
                 models = [m.get("name", "") for m in json.load(r).get("models", [])]
-            base = self.model.split(":")[0]
-            return any(m == self.model or m.split(":")[0] == base for m in models), models
+            # Require the EXACT tag we'll send to /api/chat (":latest" implied when
+            # no tag is given). A loose base-name match ("gemma4" ~ "gemma4:2b")
+            # would say yes while /api/chat 404s on the real tag — the cause of
+            # repeated "translate failed: 404" errors.
+            want = self.model if ":" in self.model else self.model + ":latest"
+            return any(m == self.model or m == want for m in models), models
         except Exception:
             return False, []
 
@@ -1339,7 +1344,11 @@ class Pipeline:
             log(f"persist failed: {e}")
 
     def translate(self, text):
-        """English translation of a post (cached). Falls back to the original."""
+        """English translation of a post (cached). Falls back to the original.
+
+        Only calls Ollama when the LLM is actually usable — otherwise it returns
+        the original text without hitting the server, so a missing model can't
+        produce a stream of 404 errors."""
         text = (text or "").strip()
         if not text:
             return ""
@@ -1350,6 +1359,16 @@ class Pipeline:
             return text
         try:
             out = self.llm.translate(text) or text
+        except urllib.error.HTTPError as e:
+            # 404 = the model tag isn't pulled. Stop trying for the rest of the
+            # session (one clear line) instead of logging on every popup.
+            if e.code == 404:
+                self.use_llm = False
+                log(f'translate/extract disabled: model "{CONFIG["ollama_model"]}" '
+                    f"returned 404 — pull it with: ollama pull {CONFIG['ollama_model']}")
+            else:
+                log(f"translate failed: {e}")
+            out = text
         except Exception as e:
             log(f"translate failed: {e}")
             out = text
@@ -1573,20 +1592,23 @@ def main():
     log(f"  URL        : {url}")
     log("=" * 60)
 
-    # Native desktop window only when explicitly requested (DDX_NATIVE=1).
-    if CONFIG["native"]:
+    # Show it as a real desktop app window by default (pywebview). In "auto"
+    # mode we only do that when pywebview and a display are actually present,
+    # otherwise we fall back to the browser so it always opens *something*.
+    if should_try_native():
         try:
             import webview  # type: ignore
-            log("Opening native window… (close it or press Ctrl+C to stop)")
+            log("Opening the app window… (close it or press Ctrl+C to stop)")
             webview.create_window("The Big Drone Detector", url, width=1440, height=920,
                                   min_size=(960, 640), background_color="#0d1b2a")
             webview.start()
             log("window closed — shutting down.")
             return
         except ImportError:
-            log("pywebview not installed — opening the browser instead.")
+            log("pywebview not installed — run 'pip install pywebview' for a desktop"
+                " app window. Opening the browser instead.")
         except Exception as e:
-            log(f"native window failed ({e}) — opening the browser instead.")
+            log(f"app window failed ({e}) — opening the browser instead.")
 
     log(f"Opening the map in your browser: {url}")
     log("(If it didn't open, paste that URL into your browser.) Ctrl+C to stop.")
@@ -1599,6 +1621,27 @@ def main():
             time.sleep(1)
     except KeyboardInterrupt:
         log("shutting down…")
+
+
+def should_try_native():
+    """Decide whether to open the standalone desktop window.
+
+    auto (default): yes, when pywebview is importable AND a GUI is available
+    (always on Windows/macOS; on Linux only with a DISPLAY/WAYLAND session).
+    Force it with DDX_NATIVE=1/native/app, or force the browser with
+    DDX_NATIVE=0/browser."""
+    mode = CONFIG["native_mode"]
+    if mode in ("0", "false", "no", "browser", "web"):
+        return False
+    if mode in ("1", "true", "yes", "native", "app", "desktop", "window"):
+        return True
+    # auto
+    import importlib.util
+    if importlib.util.find_spec("webview") is None:
+        return False
+    if sys.platform.startswith("linux") and not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return False
+    return True
 
 
 if __name__ == "__main__":

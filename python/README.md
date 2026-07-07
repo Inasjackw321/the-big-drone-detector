@@ -13,18 +13,21 @@ track to a single object.
 
 ## Requirements
 
-- **Python 3.8+** (standard library only — no `pip install` needed)
+- **Python 3.8+** (standard library only for the core)
 - **[Ollama](https://ollama.com)** running locally with the model pulled:
 
   ```sh
   ollama pull gemma3:12b   # or gemma3:4b for a ~3x faster, slightly less precise run
   ollama serve            # usually already running after install
   ```
+- **Optional, recommended:** `pip install pywebview` to run it as a **standalone
+  desktop app** window instead of a browser tab (see below).
 
 ## Run
 
 ```sh
 cd python
+pip install pywebview        # optional — makes it a desktop app window
 python drone_detector.py
 ```
 
@@ -32,13 +35,15 @@ On start it:
 
 1. grabs the **last hour** of messages from every channel and plots them;
 2. checks Ollama is up and the model is installed;
-3. **opens the map in your browser** and **updates every minute** — new
-   messages are extracted, geocoded and their tracks redrawn as they arrive. If
-   the browser doesn't open automatically, the terminal prints the URL to paste
-   in. Press Ctrl+C to stop.
+3. **opens as a standalone app** and **updates every minute** — new messages
+   are extracted, geocoded and their tracks redrawn as they arrive, and moving
+   drones creep toward their destination live. Press Ctrl+C to stop.
 
-> Prefer a standalone desktop window instead of a browser tab? Run
-> `pip install pywebview` and start with `DDX_NATIVE=1 python drone_detector.py`.
+**How it opens** (`DDX_NATIVE`, default `auto`):
+
+- `auto` — its own **desktop app window** when `pywebview` and a display are
+  available, otherwise the browser (so it always opens something).
+- `1` / `app` — force the desktop window · `0` / `browser` — force the browser.
 
 ### Fast loads
 
@@ -64,21 +69,26 @@ Ollama instead).
   Markers and tracks are trimmed to the moment you're viewing; **● LIVE** snaps
   back to now.
 - **Markers**: a report of *N* drones is drawn as an actual formation of up to
-  three drone glyphs (with an exact ×N badge), each **facing its heading** and
-  gently drifting that way, so a glance shows how many and which direction.
+  three **long-range strike-drone** (Shahed-style) glyphs with an exact ×N
+  badge, each **facing its heading**; missiles are drawn as rockets and jets as
+  swept-wing aircraft. When a heading/destination is known, a drone slowly
+  **advances that way from its last known spot** (live dead-reckoning).
 - **Warnings shade the region** they affect as a diagonally **hatched area**
   (bigger for an oblast, smaller for a town), with a dashed boundary — the way
-  an air-raid alert map shades affected regions — instead of just a dot.
+  an air-raid alert map shades affected regions — instead of just a dot. A
+  **cluster** of nearby warnings is merged into one combined region-area zone.
 - **Tracks** trail the object's **last known location** as a fading comet tail
   (labelled `AO#id · km/h · age`); separate markers are never wired together.
 - **Filters**: All / Danger / Inbound / Cleared / Drones / Missiles.
 - **Layers**: Tracks / Zones / **Bases** (known airbases) / Labels / Clock
   (remembered between sessions).
 - **🌐 Translate**: click *Translate* in any post popup to render the
-  Russian/Ukrainian text in English (translated on-device by the same Ollama
-  model, cached). Toggle the **🌐 Translate** chip to auto-translate every
-  popup you open. The newest warnings are pre-translated in the background, so
-  those popups open instantly.
+  Russian/Ukrainian text in English (translated on-device by Ollama, cached).
+  It goes straight to Ollama even if extraction fell back to the heuristic
+  parser, and if no chat model is available it says so plainly instead of
+  silently showing the original. Toggle the **🌐 Translate** chip to
+  auto-translate every popup; the newest warnings are pre-translated so they
+  open instantly.
 - **⬇ Export**: click Export, then drag a rectangle to save that area of the
   map as a clean PNG (with the clock, a region/time header and a legend).
 - **🎬 Video**: records a smooth **timelapse of everything since the app
