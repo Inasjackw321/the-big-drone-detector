@@ -111,8 +111,10 @@ test('backfill pages back through history and builds tracks', async () => {
     link: `https://t.me/radarrussiia/${id}`, date: iso(minAgo),
     text: `Точка ${id}. Тульская область. Фиксация БПЛА, курс на восток.`, lon,
   });
-  const page2 = [mk(200, 40, 38), mk(201, 30, 39), mk(202, 20, 40), mk(203, 10, 41)]; // newest
-  const page1 = [mk(100, 120, 34), mk(101, 110, 35), mk(102, 100, 36), mk(103, 90, 37)]; // older
+  // ~0.5° lon (~33 km) every ~25 min ≈ 80 km/h — a realistic Shahed cadence
+  // that chains under the tight correlation limits.
+  const page2 = [mk(200, 100, 38.0), mk(201, 75, 38.5), mk(202, 50, 39.0), mk(203, 25, 39.5)]; // newest
+  const page1 = [mk(100, 200, 36.0), mk(101, 175, 36.5), mk(102, 150, 37.0), mk(103, 125, 37.5)]; // older
   const fetchPosts = async ({ beforeId }) => {
     if (!beforeId) return page2.slice();
     if (beforeId <= 200) return page1.slice(); // older page when paging before 200

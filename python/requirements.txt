@@ -1,3 +1,7 @@
-# The app runs on the Python standard library alone (browser fallback).
-# For the native desktop window, install pywebview:
-pywebview>=5.0
+# The app runs on the Python standard library alone and opens in your browser —
+# no pip install needed.
+#
+# OPTIONAL: for a standalone desktop window instead of a browser tab, install
+# pywebview and run with DDX_NATIVE=1:
+#   pip install pywebview
+# pywebview>=5.0

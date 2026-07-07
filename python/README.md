@@ -4,38 +4,39 @@ A Python app that tracks Russian/Ukrainian aerial threats (drones, Shaheds,
 cruise & ballistic missiles) from public Telegram channels, extracts them with a
 **local Ollama model** (default `translategemma:12b`), correlates them into
 **flight tracks**, and shows everything on a live dark map with a **history
-timeline** — in a **native desktop window**.
+timeline** — **in your browser**.
 
 ## Requirements
 
-- **Python 3.8+**
+- **Python 3.8+** (standard library only — no `pip install` needed)
 - **[Ollama](https://ollama.com)** running locally with the model pulled:
 
   ```sh
   ollama pull translategemma:12b
   ollama serve            # usually already running after install
   ```
-- For the native window (recommended): **`pip install pywebview`**
-  (without it, the app falls back to opening your browser).
 
 ## Run
 
 ```sh
 cd python
-pip install -r requirements.txt      # pywebview, for the native window
 python drone_detector.py
 ```
 
 On start it:
 
 1. **repaints the last session instantly** from an on-disk cache — the map is
-   full the moment the window opens;
+   full the moment it opens;
 2. checks Ollama is up and the model is installed;
 3. fetches all channels **in parallel** and extracts new posts **concurrently**,
    **newest first**, so current threats appear within seconds while older
    history fills in behind them;
-4. opens a **native desktop window** (via pywebview), and keeps polling for new
-   posts until you close the window / press Ctrl+C.
+4. **opens the map in your browser** and keeps polling for new posts (every
+   ~45s) until you press Ctrl+C. If the browser doesn't open automatically, the
+   terminal prints the URL to paste in.
+
+> Prefer a standalone desktop window instead of a browser tab? Run
+> `pip install pywebview` and start with `DDX_NATIVE=1 python drone_detector.py`.
 
 ### Fast loads
 
@@ -97,8 +98,8 @@ Ollama instead).
 | `DDX_NOMINATIM_RECENT_HOURS` | `6` | during backfill, only use the slow OpenStreetMap geocoder for posts newer than this |
 | `TELEGRAM_CHANNELS` | `radarrussiia,kpszsu,lpr1_treugolnik` | channels |
 | `DDX_BACKFILL_HOURS` | `48` | history downloaded on startup / timeline length |
-| `POLL_INTERVAL_SECONDS` | `120` | how often to check for new posts |
-| `DDX_NATIVE` | `1` | native window (`0` = force browser) |
+| `POLL_INTERVAL_SECONDS` | `45` | how often to check for new posts (lower = faster tracking) |
+| `DDX_NATIVE` | `0` | `1` = standalone desktop window (needs pywebview); default opens the browser |
 | `DDX_PORT` | `8700` | preferred local port (auto-picks a free one if taken) |
 | `DDX_DATA_DIR` | OS app-data | where the persistent cache lives |
 | `DDX_NOMINATIM` | `1` | allow OpenStreetMap geocoding for places not in the offline gazetteer |
