@@ -64,21 +64,26 @@ Ollama instead).
   Markers and tracks are trimmed to the moment you're viewing; **● LIVE** snaps
   back to now.
 - **Markers**: a report of *N* drones is drawn as an actual formation of up to
-  three drone glyphs (with an exact ×N badge), each **facing its heading** and
-  gently drifting that way, so a glance shows how many and which direction.
+  three **long-range strike-drone** (Shahed-style) glyphs with an exact ×N
+  badge, each **facing its heading**; missiles are drawn as rockets and jets as
+  swept-wing aircraft. When a heading/destination is known, a drone slowly
+  **advances that way from its last known spot** (live dead-reckoning).
 - **Warnings shade the region** they affect as a diagonally **hatched area**
   (bigger for an oblast, smaller for a town), with a dashed boundary — the way
-  an air-raid alert map shades affected regions — instead of just a dot.
+  an air-raid alert map shades affected regions — instead of just a dot. A
+  **cluster** of nearby warnings is merged into one combined region-area zone.
 - **Tracks** trail the object's **last known location** as a fading comet tail
   (labelled `AO#id · km/h · age`); separate markers are never wired together.
 - **Filters**: All / Danger / Inbound / Cleared / Drones / Missiles.
 - **Layers**: Tracks / Zones / **Bases** (known airbases) / Labels / Clock
   (remembered between sessions).
 - **🌐 Translate**: click *Translate* in any post popup to render the
-  Russian/Ukrainian text in English (translated on-device by the same Ollama
-  model, cached). Toggle the **🌐 Translate** chip to auto-translate every
-  popup you open. The newest warnings are pre-translated in the background, so
-  those popups open instantly.
+  Russian/Ukrainian text in English (translated on-device by Ollama, cached).
+  It goes straight to Ollama even if extraction fell back to the heuristic
+  parser, and if no chat model is available it says so plainly instead of
+  silently showing the original. Toggle the **🌐 Translate** chip to
+  auto-translate every popup; the newest warnings are pre-translated so they
+  open instantly.
 - **⬇ Export**: click Export, then drag a rectangle to save that area of the
   map as a clean PNG (with the clock, a region/time header and a legend).
 - **🎬 Video**: records a smooth **timelapse of everything since the app

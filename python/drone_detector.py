@@ -1339,15 +1339,17 @@ class Pipeline:
             log(f"persist failed: {e}")
 
     def translate(self, text):
-        """English translation of a post (cached). Falls back to the original."""
+        """English translation of a post (cached). Falls back to the original.
+
+        Goes straight to Ollama even when extraction fell back to the heuristic
+        parser — as long as the model can chat it can translate, so the button
+        keeps working regardless of which parser we chose for extraction."""
         text = (text or "").strip()
         if not text:
             return ""
         with _translate_lock:
             if text in _translate_cache:
                 return _translate_cache[text]
-        if not self.use_llm:
-            return text
         try:
             out = self.llm.translate(text) or text
         except Exception as e:

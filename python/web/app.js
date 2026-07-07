@@ -87,20 +87,17 @@ function matchesFilter(s) { switch (state.filter) { case 'danger': return status
 function trackMatchesFilter(t) { if (state.filter === 'drone') return t.threatClass === 'drone'; if (state.filter === 'aircraft') return t.threatClass === 'aircraft'; if (state.filter === 'missile') return t.threatClass === 'missile'; return true; }
 
 // ---- glyphs ----
-// Top-down quadcopter with a clear nose (points up = bearing 0) so it can be
-// rotated to face its heading, and spinning rotors so it reads as "in flight".
+// Long-range strike drone (Shahed-style delta wing), nose up (bearing 0) so it
+// can be rotated to face its heading. Pointed nose, swept delta, small canards
+// and a spinning pusher-prop line at the tail.
 function droneGlyph(cx, cy, color, s) {
-  const a = 5.0 * s, rr = 2.9 * s, sw = 1.5 * s, dark = '#0a1622';
-  let arms = '', rotors = '';
-  for (const [dx, dy] of [[-a,-a],[a,-a],[-a,a],[a,a]]) {
-    arms += `<line x1="${cx}" y1="${cy}" x2="${cx+dx}" y2="${cy+dy}" stroke="${color}" stroke-width="${sw}" stroke-linecap="round"/>`;
-    rotors += `<circle class="rotor" cx="${cx+dx}" cy="${cy+dy}" r="${rr}" fill="${dark}" stroke="${color}" stroke-width="${1.2*s}"/>`
-      + `<circle cx="${cx+dx}" cy="${cy+dy}" r="${0.8*s}" fill="${color}"/>`;
-  }
-  // fuselage: a nose-up hull, with a bright tip marking the front.
-  const body = `<path d="M ${cx} ${cy-4.4*s} L ${cx+2.7*s} ${cy+2.9*s} L ${cx-2.7*s} ${cy+2.9*s} Z" fill="${dark}" stroke="${color}" stroke-width="${1.3*s}" stroke-linejoin="round"/>`;
-  const nose = `<circle cx="${cx}" cy="${cy-4.4*s}" r="${1.4*s}" fill="${color}"/>`;
-  return arms + rotors + body + nose;
+  const k = s, dark = '#0a1622';
+  const wing = `<polygon points="${cx},${cy-9*k} ${cx+7*k},${cy+5.6*k} ${cx},${cy+2.6*k} ${cx-7*k},${cy+5.6*k}" fill="${color}" stroke="${dark}" stroke-width="${0.8*k}" stroke-linejoin="round"/>`;
+  const spine = `<line x1="${cx}" y1="${cy-9*k}" x2="${cx}" y2="${cy+2.6*k}" stroke="${dark}" stroke-width="${1.2*k}" opacity="0.5"/>`;
+  const canard = `<line x1="${cx-3.1*k}" y1="${cy-2.2*k}" x2="${cx+3.1*k}" y2="${cy-2.2*k}" stroke="${dark}" stroke-width="${1*k}" opacity="0.5"/>`;
+  const nose = `<circle cx="${cx}" cy="${cy-7.9*k}" r="${1.15*k}" fill="${dark}"/>`;
+  const prop = `<line class="rotor" x1="${cx-2.7*k}" y1="${cy+3.6*k}" x2="${cx+2.7*k}" y2="${cy+3.6*k}" stroke="${color}" stroke-width="${1.1*k}" stroke-linecap="round"/>`;
+  return wing + spine + canard + nose + prop;
 }
 // Formation offsets (local frame, nose up) for count → up to 3 drone glyphs.
 function droneFormation(n) {
@@ -108,7 +105,17 @@ function droneFormation(n) {
   if (n === 2) return [[-5.5, 2.5], [5.5, 2.5]];
   return [[0, -5.5], [-6.5, 4], [6.5, 4]]; // lead + two wingmen
 }
-function missileGlyph(cx, cy, color, s) { const h = 7.5 * s; return `<polygon points="${cx},${cy-h} ${cx-h*0.55},${cy+h*0.7} ${cx+h*0.55},${cy+h*0.7}" fill="#0d1b2a" stroke="${color}" stroke-width="${1.7*s}" stroke-linejoin="round"/><polygon points="${cx},${cy-h} ${cx-h*0.28},${cy} ${cx+h*0.28},${cy}" fill="${color}"/>`; }
+// Sleek rocket: pointed nose-cone, slim body, swept tail fins and a warm
+// exhaust flame at the base. Nose up so it rotates to face its heading.
+function missileGlyph(cx, cy, color, s) {
+  const k = s, dark = '#0a1622';
+  const flame = `<polygon points="${cx},${cy+8.6*k} ${cx-1.7*k},${cy+5*k} ${cx+1.7*k},${cy+5*k}" fill="#ffb648"/>`;
+  const body = `<path d="M ${cx} ${cy-9*k} Q ${cx+2.5*k} ${cy-5.5*k} ${cx+2.3*k} ${cy+1.5*k} L ${cx+2.3*k} ${cy+5*k} L ${cx-2.3*k} ${cy+5*k} L ${cx-2.3*k} ${cy+1.5*k} Q ${cx-2.5*k} ${cy-5.5*k} ${cx} ${cy-9*k} Z" fill="${color}" stroke="${dark}" stroke-width="${0.7*k}" stroke-linejoin="round"/>`;
+  const finL = `<polygon points="${cx-2.3*k},${cy+1*k} ${cx-5.2*k},${cy+6*k} ${cx-2.3*k},${cy+5*k}" fill="${color}"/>`;
+  const finR = `<polygon points="${cx+2.3*k},${cy+1*k} ${cx+5.2*k},${cy+6*k} ${cx+2.3*k},${cy+5*k}" fill="${color}"/>`;
+  const port = `<circle cx="${cx}" cy="${cy-3.2*k}" r="${1.05*k}" fill="${dark}"/>`;
+  return flame + finL + finR + body + port;
+}
 function genericGlyph(cx, cy, color, sym, s) { const r = 7.5 * s; return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2*s}"/><text x="${cx}" y="${cy+3.6*s}" text-anchor="middle" font-family="Arial" font-size="${10.5*s}" font-weight="bold" fill="${color}">${sym}</text>`; }
 function clearGlyph(cx, cy, color, s) { const r = 7.5 * s; return `<circle cx="${cx}" cy="${cy}" r="${r}" fill="#0d1b2a" stroke="${color}" stroke-width="${2*s}"/><path d="M${cx-3.6*s},${cy+0.3*s} L${cx-1*s},${cy+3*s} L${cx+3.8*s},${cy-3*s}" fill="none" stroke="${color}" stroke-width="${2*s}" stroke-linecap="round" stroke-linejoin="round"/>`; }
 // Swept-wing jet: an arrowhead body with two back-swept wings.
@@ -182,11 +189,10 @@ function arrowheadIcon(bearing, color) { const svg = `<svg xmlns="http://www.w3.
 // though the vector layers draw to canvas.
 let hatchUid = 0;
 function svgFromString(str) { const d = document.createElement('div'); d.innerHTML = str.trim(); return d.querySelector('svg'); }
-function addHatchZone(s, color, level) {
-  const rk = s.geocodePrecision === 'region' ? 62 : level >= 3 ? 30 : 22; // affected radius (km)
-  const dLat = rk / 111, dLon = rk / (111 * Math.cos(s.lat * Math.PI / 180));
-  const bounds = L.latLngBounds([s.lat - dLat, s.lon - dLon], [s.lat + dLat, s.lon + dLon]);
-  const uid = 'hz' + (hatchUid++), fillOp = level >= 3 ? 0.5 : 0.34, gap = level >= 3 ? 6 : 8;
+function drawHatchEllipse(lat, lon, rk, color, level) {
+  const dLat = rk / 111, dLon = rk / (111 * Math.cos(lat * Math.PI / 180));
+  const bounds = L.latLngBounds([lat - dLat, lon - dLon], [lat + dLat, lon + dLon]);
+  const uid = 'hz' + (hatchUid++), fillOp = level >= 3 ? 0.5 : 0.32, gap = level >= 3 ? 6 : 8;
   const svg = svgFromString(
     `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">` +
     `<defs><pattern id="${uid}" width="${gap}" height="${gap}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
@@ -194,7 +200,31 @@ function addHatchZone(s, color, level) {
     `<ellipse cx="50" cy="50" rx="48" ry="48" fill="url(#${uid})" fill-opacity="${fillOp}" ` +
     `stroke="${color}" stroke-opacity="0.8" stroke-width="1.3" stroke-dasharray="5 4"/></svg>`);
   L.svgOverlay(svg, bounds, { interactive: false, className: 'zone-hatch' }).addTo(zonesLayer);
-  if (level >= 3) L.circleMarker([s.lat, s.lon], { radius: 4, color, fillColor: color, fillOpacity: 0.95, weight: 1, opacity: 0.9 }).addTo(zonesLayer);
+}
+// Group nearby warnings (same oblast, or within ~110 km) into one blob so a
+// cluster of alerts reads as a single region-area warning, not a pile of rings.
+function clusterWarns(warns) {
+  const TH = 110, cl = [];
+  for (const s of warns.slice().sort((a, b) => statusInfo(b).level - statusInfo(a).level)) {
+    const rk = normPlace(s.region || '');
+    let c = cl.find((c) => (rk && c.rk === rk) || haversineKm(c.lat, c.lon, s.lat, s.lon) <= TH);
+    if (!c) { c = { lat: s.lat, lon: s.lon, rk, pts: [], level: 0, color: '#ff7a3d', worst: s }; cl.push(c); }
+    c.pts.push(s);
+    c.lat = c.pts.reduce((a, p) => a + p.lat, 0) / c.pts.length;
+    c.lon = c.pts.reduce((a, p) => a + p.lon, 0) / c.pts.length;
+    const info = statusInfo(s);
+    if (info.level > c.level) { c.level = info.level; c.color = info.color; c.worst = s; }
+  }
+  return cl;
+}
+function addClusterZone(c) {
+  const anyRegion = c.pts.some((p) => p.geocodePrecision === 'region');
+  let maxd = 0; for (const p of c.pts) maxd = Math.max(maxd, haversineKm(c.lat, c.lon, p.lat, p.lon));
+  let rk;
+  if (c.pts.length === 1) rk = c.pts[0].geocodePrecision === 'region' ? 62 : c.level >= 3 ? 30 : 22;
+  else rk = Math.max(anyRegion ? 62 : 44, maxd + 24);   // enclose the whole cluster
+  drawHatchEllipse(c.lat, c.lon, rk, c.color, c.level);
+  if (c.level >= 3) L.circleMarker([c.worst.lat, c.worst.lon], { radius: 4, color: c.color, fillColor: c.color, fillOpacity: 0.95, weight: 1, opacity: 0.9 }).addTo(zonesLayer);
 }
 
 // ---- airbase reference layer ----
@@ -256,15 +286,22 @@ function popupHtml(s) {
 
 // ---- translation (on-demand, cached; server calls the local Ollama model) ----
 const _trCache = new Map();
+const norm = (t) => (t || '').replace(/\s+/g, ' ').trim();
+// Returns the English translation, or throws on failure/timeout so the caller
+// can show an explicit state instead of silently doing nothing.
 async function translateText(text) {
   if (_trCache.has(text)) return _trCache.get(text);
+  const ctrl = new AbortController();
+  const to = setTimeout(() => ctrl.abort(), 30000);
   try {
-    const r = await fetch('api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    const r = await fetch('api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }), signal: ctrl.signal });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
-    const t = (d.translation || text).trim();
+    const t = norm(d.translation);
+    if (!t) throw new Error('empty translation');
     _trCache.set(text, t);
     return t;
-  } catch { return text; }
+  } finally { clearTimeout(to); }
 }
 // Wire the Translate link (and auto-run it when the toggle is on) each time a popup opens.
 function wirePopupTranslate(popup) {
@@ -275,10 +312,23 @@ function wirePopupTranslate(popup) {
   const trDiv = node.querySelector('.popup-tr');
   const orig = node.querySelector('[data-orig]');
   if (!link || !trDiv || !orig) return;
+  const hasCyrillic = /[Ѐ-ӿ]/.test(s.postText);
   const showTranslation = async () => {
-    if (!trDiv.textContent) {
+    if (link.dataset.done !== '1') {
       link.textContent = '🌐 Translating…';
-      trDiv.textContent = await translateText(s.postText);
+      try {
+        const t = await translateText(s.postText);
+        if (hasCyrillic && norm(t) === norm(s.postText)) {
+          // Model echoed the source untouched → almost certainly no chat model
+          // is available to translate. Say so instead of showing the same text.
+          trDiv.innerHTML = `<span class="tr-warn">No translation available — start Ollama with a chat model (e.g. <b>ollama run gemma3:12b</b>).</span>`;
+        } else {
+          trDiv.textContent = t;
+        }
+      } catch {
+        trDiv.innerHTML = `<span class="tr-warn">Translation unavailable — is Ollama running? Check the model in the header.</span>`;
+      }
+      link.dataset.done = '1';
     }
     trDiv.style.display = 'block';
     orig.style.display = 'none';
@@ -323,6 +373,7 @@ function ageOpacity(ageMin) { return ageMin <= 8 ? 1 : Math.max(0.4, 1 - (ageMin
 
 function renderMarkers(sightings, tracks) {
   zonesLayer.clearLayers(); markersLayer.clearLayers(); labelsLayer.clearLayers();
+  state.movers = [];
   const asOf = currentAsOf(), toShow = sightings.filter(matchesFilter), pts = [];
   // A track already draws a trailing tail from the object's last known location,
   // so DON'T also drop a full marker on every past waypoint — that is what made
@@ -331,21 +382,57 @@ function renderMarkers(sightings, tracks) {
   const tailPts = [];
   if (state.layers.tracks) for (const t of tracks) { const p = t.points; for (let i = 0; i < p.length - 1; i++) tailPts.push(p[i]); }
   const onTail = (s) => tailPts.some((p) => haversineKm(s.lat, s.lon, p.lat, p.lon) < 2.5);
-  for (const s of toShow) {
-    if (onTail(s)) continue;
+  const visible = toShow.filter((s) => !onTail(s));
+
+  // ZONES: cluster nearby warnings into one region-area warning; lesser
+  // region-level reports get a faint dashed footprint.
+  for (const c of clusterWarns(visible.filter((s) => statusInfo(s).warn))) addClusterZone(c);
+  for (const s of visible) if (!statusInfo(s).warn && s.geocodePrecision === 'region')
+    L.circle([s.lat, s.lon], { radius: 30000, color: '#6f93b4', weight: 1, opacity: 0.25, fill: false, dashArray: '3 6' }).addTo(zonesLayer);
+
+  // MARKERS
+  for (const s of visible) {
     const info = statusInfo(s), color = info.color;
-    // Warnings shade the whole affected region as a discernible hatched area;
-    // lesser region-level reports get a faint dashed footprint.
-    if (info.warn) addHatchZone(s, color, info.level);
-    else if (s.geocodePrecision === 'region') L.circle([s.lat, s.lon], { radius: 30000, color: '#6f93b4', weight: 1, opacity: 0.25, fill: false, dashArray: '3 6' }).addTo(zonesLayer);
     const ageMin = (asOf - (Date.parse(s.timestamp || '') || asOf)) / 60000, opacity = ageOpacity(ageMin);
     const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity, zIndexOffset: info.level * 100 }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
     mk._s = s; // let the popup-open handler reach this sighting for translation
     pts.push([s.lat, s.lon]);
-    L.tooltip({ permanent: true, direction: 'bottom', className: 'place-label', offset: [0, 14], interactive: false }).setContent(`<span style="color:${color}">${esc(s.location)}</span>`).setLatLng([s.lat, s.lon]).addTo(labelsLayer);
+    const label = L.tooltip({ permanent: true, direction: 'bottom', className: 'place-label', offset: [0, 14], interactive: false }).setContent(`<span style="color:${color}">${esc(s.location)}</span>`).setLatLng([s.lat, s.lon]).addTo(labelsLayer);
+    // A drone with a known heading/destination slowly creeps that way from its
+    // last known spot (dead reckoning), so the map shows it advancing live.
+    if (state.timeline.live) registerMover(s, mk, label, asOf);
   }
   if (!state.hasAutoZoomed && pts.length) { const ap = toShow.filter((s) => statusInfo(s).warn).map((s) => [s.lat, s.lon]); map.fitBounds(ap.length ? ap : pts, { padding: [80, 80], maxZoom: 9 }); state.hasAutoZoomed = true; }
 }
+
+// ---- moving drones: dead-reckon toward the destination between updates ----
+const DRONE_KMH = 160;            // nominal Shahed cruise
+function registerMover(s, marker, label, asOf) {
+  if (s.threatType !== 'drone') return;
+  if (s.status !== 'approaching' && s.status !== 'overhead') return;
+  const brg = resolveBearing(s);
+  if (brg === null) return;
+  const dest = confidentDest(s);
+  const maxKm = dest ? haversineKm(s.lat, s.lon, dest.lat, dest.lon) : 120;
+  if (maxKm < 3) return;
+  state.movers.push({ marker, label, fromLat: s.lat, fromLon: s.lon, brg,
+    destLat: dest ? dest.lat : null, destLon: dest ? dest.lon : null, maxKm, postT: Date.parse(s.timestamp || '') || asOf });
+}
+function animateMovers() {
+  const movers = state.movers || [];
+  if (movers.length && state.timeline.live && !state.recording) {
+    const now = Date.now();
+    for (const m of movers) {
+      const dist = Math.min(m.maxKm, DRONE_KMH * Math.max(0, (now - m.postT) / 3600000));
+      if (dist < 0.2) continue;
+      const [la, lo] = projectPoint(m.fromLat, m.fromLon, m.brg, dist);
+      m.marker.setLatLng([la, lo]);
+      if (m.label) m.label.setLatLng([la, lo]);
+    }
+  }
+  requestAnimationFrame(animateMovers);
+}
+requestAnimationFrame(animateMovers);
 function kindOf(cls) { return cls === 'missile' ? 'Missile' : cls === 'aircraft' ? 'Aircraft' : 'Drone'; }
 function trackTooltip(t) {
   const from = t.points[0], to = t.points[t.points.length - 1];
