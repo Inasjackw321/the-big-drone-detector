@@ -76,10 +76,12 @@ Ollama instead).
   badge, each **facing its heading**; missiles are drawn as rockets and jets as
   swept-wing aircraft. When a heading/destination is known, a drone slowly
   **advances that way from its last known spot** (live dead-reckoning).
-- **Warnings shade the region** they affect as a diagonally **hatched area**
-  (bigger for an oblast, smaller for a town), with a dashed boundary — the way
-  an air-raid alert map shades affected regions — instead of just a dot. A
-  **cluster** of nearby warnings is merged into one combined region-area zone.
+- **Warnings are a region, not pins.** An area threat (an alert/overhead
+  warning, or a cluster of them) is drawn as one diagonally **hatched region**
+  with a dashed boundary — like an air-raid alert map — rather than a pulsing
+  pin in every town. The drones that are actually **flying through** that region
+  (an in-flight object with a known course) are drawn on top as **moving blips**
+  with a wake; specific impacts and all-clears keep their own marker.
 - **Tracks** trail the object's **last known location** as a fading comet tail
   (labelled `AO#id · km/h · age`); separate markers are never wired together.
 - **Filters**: All / Danger / Inbound / Cleared / Drones / Missiles.

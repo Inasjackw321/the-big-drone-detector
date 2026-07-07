@@ -292,14 +292,16 @@ const norm = (t) => (t || '').replace(/\s+/g, ' ').trim();
 async function translateText(text) {
   if (_trCache.has(text)) return _trCache.get(text);
   const ctrl = new AbortController();
-  const to = setTimeout(() => ctrl.abort(), 30000);
+  const to = setTimeout(() => ctrl.abort(), 45000);
   try {
     const r = await fetch('api/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }), signal: ctrl.signal });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     const d = await r.json();
     const t = norm(d.translation);
     if (!t) throw new Error('empty translation');
-    _trCache.set(text, t);
+    // Cache only a real translation; if the model echoed the source, leave it
+    // uncached so tapping again can retry.
+    if (!(/[Ѐ-ӿ]/.test(text) && t === norm(text))) _trCache.set(text, t);
     return t;
   } finally { clearTimeout(to); }
 }
@@ -319,16 +321,17 @@ function wirePopupTranslate(popup) {
       try {
         const t = await translateText(s.postText);
         if (hasCyrillic && norm(t) === norm(s.postText)) {
-          // Model echoed the source untouched → almost certainly no chat model
-          // is available to translate. Say so instead of showing the same text.
-          trDiv.innerHTML = `<span class="tr-warn">No translation available — pull the model shown in the header (e.g. <b>ollama pull gemma4:12b</b>).</span>`;
+          // Model echoed the source untouched — don't mark done, so tapping
+          // Translate again retries (transient with a busy local model).
+          trDiv.innerHTML = `<span class="tr-warn">No translation yet — tap Translate again, or check the model in the header (e.g. <b>ollama pull gemma4:12b</b>).</span>`;
         } else {
           trDiv.textContent = t;
+          link.dataset.done = '1';
         }
       } catch {
-        trDiv.innerHTML = `<span class="tr-warn">Translation unavailable — is Ollama running? Check the model in the header.</span>`;
+        trDiv.innerHTML = `<span class="tr-warn">Translation timed out — tap Translate to retry (is Ollama running with the header model?).</span>`;
+        // leave done unset so it can retry
       }
-      link.dataset.done = '1';
     }
     trDiv.style.display = 'block';
     orig.style.display = 'none';
@@ -393,16 +396,26 @@ function renderMarkers(sightings, tracks) {
   // MARKERS
   for (const s of visible) {
     const info = statusInfo(s), color = info.color;
+    const plan = state.timeline.live ? moverPlan(s, tracks) : null;
+    // An area threat (drone/alert/overhead warning) is shown as the shaded
+    // REGION, not a pin in every town — UNLESS it's actually flying through,
+    // which we draw as a moving blip. Specific impacts and non-warnings (all
+    // clear / intercepted) keep their marker.
+    const areaWarn = info.warn && s.status !== 'impact';
+    if (areaWarn && !plan) continue;
     const ageMin = (asOf - (Date.parse(s.timestamp || '') || asOf)) / 60000, opacity = ageOpacity(ageMin);
     const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity, zIndexOffset: info.level * 100 }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
     mk._s = s; // let the popup-open handler reach this sighting for translation
-    pts.push([s.lat, s.lon]);
     const label = L.tooltip({ permanent: true, direction: 'bottom', className: 'place-label', offset: [0, 14], interactive: false }).setContent(`<span style="color:${color}">${esc(s.location)}</span>`).setLatLng([s.lat, s.lon]).addTo(labelsLayer);
-    // A drone with a known heading/destination flies that way from its last
-    // known spot, so the map shows it advancing live like a radar blip.
-    if (state.timeline.live) registerMover(s, mk, label, opacity, tracks);
+    // A drone/jet/missile with a known course flies that way from its last known
+    // spot — the "drones flying through the region" — like a radar blip.
+    if (plan) registerMover(s, mk, label, opacity, plan);
   }
-  if (!state.hasAutoZoomed && pts.length) { const ap = toShow.filter((s) => statusInfo(s).warn).map((s) => [s.lat, s.lon]); map.fitBounds(ap.length ? ap : pts, { padding: [80, 80], maxZoom: 9 }); state.hasAutoZoomed = true; }
+  if (!state.hasAutoZoomed && visible.length) {
+    const ap = visible.filter((s) => statusInfo(s).warn).map((s) => [s.lat, s.lon]);
+    map.fitBounds(ap.length ? ap : visible.map((s) => [s.lat, s.lon]), { padding: [80, 80], maxZoom: 9 });
+    state.hasAutoZoomed = true;
+  }
 }
 
 // ---- moving drones: radar blips fly along their vector toward the target ----
@@ -426,20 +439,25 @@ function moverBearing(s, cls, tracks) {
   }
   return null;
 }
-function registerMover(s, marker, label, base, tracks) {
-  if (!ORIENTABLE.has(s.threatType)) return;                 // drones, jets, missiles
-  if (s.status !== 'approaching' && s.status !== 'overhead') return;
+// A flight plan {cls, toLat, toLon} for an object in flight with a known course,
+// else null. Used both to fly it and to decide it's a moving blip (not a pin).
+function moverPlan(s, tracks) {
+  if (!ORIENTABLE.has(s.threatType)) return null;            // drones, jets, missiles
+  if (s.status !== 'approaching' && s.status !== 'overhead') return null;
   const cls = moverClass(s.threatType);
   const dest = confidentDest(s);
   const brg = moverBearing(s, cls, tracks);
-  if (!dest && brg === null) return;          // we don't know where it's flying
+  if (!dest && brg === null) return null;     // we don't know where it's flying
   const totalKm = dest ? Math.min(500, haversineKm(s.lat, s.lon, dest.lat, dest.lon)) : (cls === 'drone' ? 170 : 260);
-  if (totalKm < 4) return;
+  if (totalKm < 4) return null;
   const target = dest ? [dest.lat, dest.lon] : projectPoint(s.lat, s.lon, brg, totalKm);
-  const col = TRACK_COLORS[cls] || TRACK_COLORS.other;
+  return { cls, toLat: target[0], toLon: target[1] };
+}
+function registerMover(s, marker, label, base, plan) {
+  const col = TRACK_COLORS[plan.cls] || TRACK_COLORS.other;
   const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: col, weight: 1.8, opacity: 0.75, dashArray: '3 5', interactive: false }).addTo(markersLayer);
   state.movers.push({ marker, label, wake, base: base == null ? 1 : base,
-    fromLat: s.lat, fromLon: s.lon, toLat: target[0], toLon: target[1], startT: Date.now() });
+    fromLat: s.lat, fromLon: s.lon, toLat: plan.toLat, toLon: plan.toLon, startT: Date.now() });
 }
 function animateMovers() {
   const movers = state.movers || [];

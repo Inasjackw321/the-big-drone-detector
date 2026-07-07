@@ -1360,7 +1360,7 @@ class Pipeline:
         if not self.use_llm:
             return text
         try:
-            out = self.llm.translate(text) or text
+            out = (self.llm.translate(text) or "").strip() or text
         except urllib.error.HTTPError as e:
             # 404 = the model tag isn't pulled. Stop trying for the rest of the
             # session (one clear line) instead of logging on every popup.
@@ -1370,12 +1370,18 @@ class Pipeline:
                     f"returned 404 — pull it with: ollama pull {CONFIG['ollama_model']}")
             else:
                 log(f"translate failed: {e}")
-            out = text
+            return text
         except Exception as e:
             log(f"translate failed: {e}")
-            out = text
-        with _translate_lock:
-            _translate_cache[text] = out
+            return text  # don't cache a failure — let the next attempt retry
+        # Only cache a REAL translation. If the model just echoed the (Cyrillic)
+        # source back, don't cache it so a retry can still succeed — this is why
+        # "some translate and some don't" felt sticky.
+        echoed = bool(re.search(r"[А-Яа-яЁёІЇЄҐіїєґ]", text)) and \
+            re.sub(r"\s+", " ", out).strip().lower() == re.sub(r"\s+", " ", text).strip().lower()
+        if not echoed:
+            with _translate_lock:
+                _translate_cache[text] = out
         return out
 
     def prewarm_translations(self, limit=14):
