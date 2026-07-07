@@ -15,9 +15,9 @@
 
 const DEFAULTS = {
   maxLegKm: 280,      // max distance between consecutive points of one track
-  maxGapMin: 90,      // max minutes between consecutive points
+  maxGapMin: 55,      // max minutes between consecutive points
   maxSpeedKmh: 300,   // a Shahed cruises ~180 km/h; reject implausibly fast legs
-  maxTurnDeg: 120,    // allow winding/looping paths, but not full reversals
+  maxTurnDeg: 75,     // keep a consistent heading — no zig-zag between drones
   minPointKm: 8,      // closer than this to the last point = same place, merge
 };
 
@@ -105,6 +105,8 @@ function buildTracks(sightings, opts = {}) {
     for (const trk of tracks) {
       if (trk.ended) continue;
       if (trk.cls !== p.cls) continue;
+      // One track = one object from one source — never chain across channels.
+      if (trk.channel !== p.channel) continue;
       const last = trk.points[trk.points.length - 1];
       const dtMin = (p.t - last.t) / 60000;
       if (dtMin < 0 || dtMin > cfg.maxGapMin) continue;
@@ -141,7 +143,7 @@ function buildTracks(sightings, opts = {}) {
       }
       if (TERMINAL_STATUSES.has(p.status)) best.ended = true;
     } else {
-      tracks.push({ id: `trk-${nextId++}`, cls: p.cls, points: [p], ended: TERMINAL_STATUSES.has(p.status) });
+      tracks.push({ id: `trk-${nextId++}`, cls: p.cls, channel: p.channel, points: [p], ended: TERMINAL_STATUSES.has(p.status) });
     }
   }
 

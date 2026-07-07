@@ -95,7 +95,7 @@ Ollama instead).
 | `DDX_CONCURRENCY` | `3` | parallel extractions |
 | `DDX_LLM_PREFILTER` | `1` | skip the model for posts with no threat keyword (faster) |
 | `DDX_NOMINATIM_RECENT_HOURS` | `6` | during backfill, only use the slow OpenStreetMap geocoder for posts newer than this |
-| `TELEGRAM_CHANNELS` | `radarrussiia,kpszsu,lpr1_treugolnik` | channels |
+| `TELEGRAM_CHANNELS` | `radarrussiia,kpszsu,lpr1_treugolnik,locatorru` | channels |
 | `DDX_BACKFILL_HOURS` | `1` | how much history to grab at startup |
 | `DDX_HISTORY_HOURS` | `24` | how long data is retained (timeline + session video) |
 | `POLL_INTERVAL_SECONDS` | `60` | how often the map updates with new messages |
@@ -113,6 +113,9 @@ OLLAMA_MODEL=translategemma:12b DDX_BACKFILL_HOURS=12 DDX_VERIFY=0 python drone_
 
 ## Data sources
 
-`@radarrussiia`, `@lpr1_treugolnik` (threats over Russia) and `@kpszsu`
-(Ukrainian Air Force — Russian strikes on Ukraine), read from each channel's
-public web preview. No Telegram account or bot token required.
+`@radarrussiia`, `@lpr1_treugolnik`, `@locatorru` (threats over Russia) and
+`@kpszsu` (Ukrainian Air Force — Russian strikes on Ukraine), read from each
+channel's public web preview. No Telegram account or bot token required.
+
+Each flight track is built from a **single channel's** reports, so a sighting
+from one source is never chained to another's — one track follows one object.

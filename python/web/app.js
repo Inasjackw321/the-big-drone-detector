@@ -18,7 +18,7 @@ const STATUS_INFO = {
   unknown: { level: 1, color: '#9ab4d0', label: 'Reported', warn: false },
 };
 function statusInfo(s) { return STATUS_INFO[s && s.status] || STATUS_INFO.unknown; }
-const CHANNEL_COLORS = { radarrussiia: '#ff5c5c', kpszsu: '#4fb6ff', lpr1_treugolnik: '#ff9f3d' };
+const CHANNEL_COLORS = { radarrussiia: '#ff5c5c', kpszsu: '#4fb6ff', lpr1_treugolnik: '#ff9f3d', locatorru: '#a78bfa' };
 const TRACK_COLORS = { drone: '#ff4fd8', aircraft: '#8fd6ff', missile: '#ffb03d', other: '#8aa8c8' };
 // Markers (current positions) show only the last hour. Tracks show the whole
 // recent flight PATH (up to 6h of waypoints) so long winding routes stay

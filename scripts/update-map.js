@@ -45,7 +45,7 @@ const DOCS_DATA = path.join(__dirname, '..', 'docs', 'data', 'sightings.json');
 // threats over Russia; kpszsu = Ukrainian Air Force, reporting strikes on
 // Ukraine. Reports are de-duplicated by location, so overlapping Russia
 // sources merge into one marker instead of colliding.
-const CHANNELS = (process.env.TELEGRAM_CHANNELS || process.env.TELEGRAM_CHANNEL || 'radarrussiia,kpszsu,lpr1_treugolnik')
+const CHANNELS = (process.env.TELEGRAM_CHANNELS || process.env.TELEGRAM_CHANNEL || 'radarrussiia,kpszsu,lpr1_treugolnik,locatorru')
   .split(',')
   .map((s) => s.trim())
   .filter(Boolean);

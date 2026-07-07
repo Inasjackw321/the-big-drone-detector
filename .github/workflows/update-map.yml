@@ -46,7 +46,7 @@ jobs:
         run: node scripts/update-map.js
         env:
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
-          TELEGRAM_CHANNELS: radarrussiia,kpszsu,lpr1_treugolnik
+          TELEGRAM_CHANNELS: radarrussiia,kpszsu,lpr1_treugolnik,locatorru
           DDX_RETENTION_HOURS: '1'
           DDX_HISTORY_HOURS: '12'
 

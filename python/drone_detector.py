@@ -79,7 +79,7 @@ CONFIG = {
     "ollama_model": env("OLLAMA_MODEL", "translategemma:12b"),
     "verify": env("DDX_VERIFY", "1") not in ("0", "false", "no"),
     "channels": [c.strip() for c in env(
-        "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik").split(",") if c.strip()],
+        "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik,locatorru").split(",") if c.strip()],
     # At startup, grab only the last hour of messages and plot them.
     "backfill_hours": float(env("DDX_BACKFILL_HOURS", "1")),
     # Retain a longer window so the session timelapse video has material, and
@@ -867,12 +867,12 @@ def resolve_movement(sighting, geo, geocoder):
 
 
 # ---- track builder (port of tracks.js) ----
-# Chain reports into a real flight PATH: legs must be plausible for the object,
-# and — crucially — a track needs 3+ waypoints to be drawn. That kills the
-# straight "2-point line" artifacts (two distant reports joined by a bar) while
-# still letting a Shahed's many sequential hops build a long winding route.
-# The speed cap is the real guard against teleports (joining unrelated reports).
-TRACK_CFG = {"maxLegKm": 280, "maxGapMin": 90, "maxSpeedKmh": 300, "maxTurnDeg": 120,
+# Chain reports into ONE object's flight path. A track only links reports from
+# the SAME source channel (so a Ukrainian sighting is never joined to a Russian
+# one), that keep a consistent heading (no zig-zagging between different drones),
+# at a plausible speed, and it needs 3+ waypoints to be drawn (no straight
+# 2-point bars). The result is a per-drone path, not a merge of unrelated stuff.
+TRACK_CFG = {"maxLegKm": 280, "maxGapMin": 55, "maxSpeedKmh": 300, "maxTurnDeg": 75,
              "minPointKm": 8, "minPoints": 3}
 # Jets cover far more ground between reports than a Shahed; cruise missiles are
 # in between. Per-class overrides for the distance/speed caps.
@@ -937,7 +937,7 @@ def build_tracks(sightings):
         ({"lat": s["lat"], "lon": s["lon"], "t": parse_iso(s["timestamp"]), "time": s["timestamp"],
           "location": s.get("location", ""), "status": s.get("status", "unknown"),
           "count": s.get("count") if isinstance(s.get("count"), int) else None,
-          "cls": threat_class(s.get("threatType"))}
+          "channel": s.get("channel", ""), "cls": threat_class(s.get("threatType"))}
          for s in sightings if is_trackable(s)),
         key=lambda p: p["t"])
     tracks = []
@@ -948,7 +948,9 @@ def build_tracks(sightings):
         max_speed = caps.get("maxSpeedKmh", TRACK_CFG["maxSpeedKmh"])
         best, best_dist = None, float("inf")
         for trk in tracks:
-            if trk["ended"] or trk["cls"] != p["cls"]:
+            # One track = one object from one source: never join across channels
+            # (e.g. a Ukrainian @kpszsu sighting to a Russian @radarrussiia one).
+            if trk["ended"] or trk["cls"] != p["cls"] or trk["channel"] != p["channel"]:
                 continue
             last = trk["points"][-1]
             dt = (p["t"] - last["t"]) / 60000
@@ -979,8 +981,8 @@ def build_tracks(sightings):
             if p["status"] in TERMINAL_STATUSES:
                 best["ended"] = True
         else:
-            tracks.append({"id": f"trk-{nid}", "cls": p["cls"], "points": [p],
-                           "ended": p["status"] in TERMINAL_STATUSES})
+            tracks.append({"id": f"trk-{nid}", "cls": p["cls"], "channel": p["channel"],
+                           "points": [p], "ended": p["status"] in TERMINAL_STATUSES})
             nid += 1
     out = []
     for t in tracks:
@@ -989,7 +991,7 @@ def build_tracks(sightings):
         dist = sum(haversine_km(t["points"][i - 1]["lat"], t["points"][i - 1]["lon"],
                                 t["points"][i]["lat"], t["points"][i]["lon"])
                    for i in range(1, len(t["points"])))
-        out.append({"id": t["id"], "threatClass": t["cls"],
+        out.append({"id": t["id"], "threatClass": t["cls"], "channel": t.get("channel", ""),
                     "code": track_code(t["points"][0]["time"], t["points"][0]["location"]),
                     "speedKmh": track_speed_kmh(t["points"]),
                     "points": [{"lat": round(p["lat"], 4), "lon": round(p["lon"], 4), "time": p["time"],
