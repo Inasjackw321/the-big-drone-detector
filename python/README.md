@@ -25,15 +25,12 @@ python drone_detector.py
 
 On start it:
 
-1. **repaints the last session instantly** from an on-disk cache — the map is
-   full the moment it opens;
+1. grabs the **last hour** of messages from every channel and plots them;
 2. checks Ollama is up and the model is installed;
-3. fetches all channels **in parallel** and extracts new posts **concurrently**,
-   **newest first**, so current threats appear within seconds while older
-   history fills in behind them;
-4. **opens the map in your browser** and keeps polling for new posts (every
-   ~45s) until you press Ctrl+C. If the browser doesn't open automatically, the
-   terminal prints the URL to paste in.
+3. **opens the map in your browser** and **updates every minute** — new
+   messages are extracted, geocoded and their tracks redrawn as they arrive. If
+   the browser doesn't open automatically, the terminal prints the URL to paste
+   in. Press Ctrl+C to stop.
 
 > Prefer a standalone desktop window instead of a browser tab? Run
 > `pip install pywebview` and start with `DDX_NATIVE=1 python drone_detector.py`.
@@ -71,6 +68,8 @@ Ollama instead).
   those popups open instantly.
 - **⬇ Export**: click Export, then drag a rectangle to save that area of the
   map as a clean PNG (with the clock, a region/time header and a legend).
+- **🎬 Video**: records a **timelapse of everything since the app started** —
+  it replays the accumulated history and saves a WebM you can share.
 - Click a warning to fly to it; hover a track for its object id, speed, route
   and time span; click a marker for the source post.
 
@@ -97,8 +96,9 @@ Ollama instead).
 | `DDX_LLM_PREFILTER` | `1` | skip the model for posts with no threat keyword (faster) |
 | `DDX_NOMINATIM_RECENT_HOURS` | `6` | during backfill, only use the slow OpenStreetMap geocoder for posts newer than this |
 | `TELEGRAM_CHANNELS` | `radarrussiia,kpszsu,lpr1_treugolnik` | channels |
-| `DDX_BACKFILL_HOURS` | `48` | history downloaded on startup / timeline length |
-| `POLL_INTERVAL_SECONDS` | `45` | how often to check for new posts (lower = faster tracking) |
+| `DDX_BACKFILL_HOURS` | `1` | how much history to grab at startup |
+| `DDX_HISTORY_HOURS` | `24` | how long data is retained (timeline + session video) |
+| `POLL_INTERVAL_SECONDS` | `60` | how often the map updates with new messages |
 | `DDX_NATIVE` | `0` | `1` = standalone desktop window (needs pywebview); default opens the browser |
 | `DDX_PORT` | `8700` | preferred local port (auto-picks a free one if taken) |
 | `DDX_DATA_DIR` | OS app-data | where the persistent cache lives |

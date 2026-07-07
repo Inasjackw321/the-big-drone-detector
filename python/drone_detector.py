@@ -80,9 +80,12 @@ CONFIG = {
     "verify": env("DDX_VERIFY", "1") not in ("0", "false", "no"),
     "channels": [c.strip() for c in env(
         "TELEGRAM_CHANNELS", "radarrussiia,kpszsu,lpr1_treugolnik").split(",") if c.strip()],
-    "backfill_hours": float(env("DDX_BACKFILL_HOURS", "48")),
-    "history_hours": float(env("DDX_HISTORY_HOURS", "48")),
-    "poll_seconds": int(env("POLL_INTERVAL_SECONDS", "45")),
+    # At startup, grab only the last hour of messages and plot them.
+    "backfill_hours": float(env("DDX_BACKFILL_HOURS", "1")),
+    # Retain a longer window so the session timelapse video has material, and
+    # so tracks can keep their recent path. The live map still shows only ~1h.
+    "history_hours": float(env("DDX_HISTORY_HOURS", "24")),
+    "poll_seconds": int(env("POLL_INTERVAL_SECONDS", "60")),
     "backfill_max_pages": int(env("DDX_BACKFILL_MAX_PAGES", "40")),
     "max_new_posts": int(env("DDX_MAX_POSTS", "80")),
     "port": int(env("DDX_PORT", "8700")),

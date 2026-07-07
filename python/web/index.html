@@ -141,6 +141,18 @@
       .exp-legend { position: absolute; left: 16px; bottom: 16px; z-index: 1200; gap: 13px; align-items: center; flex-wrap: wrap; max-width: 66%; background: rgba(8,15,24,0.72); border: 1px solid rgba(45,74,106,0.55); border-radius: 9px; padding: 7px 12px; color: #aebfd0; font-size: 11px; backdrop-filter: blur(4px); }
       .exp-legend span { display: inline-flex; gap: 5px; align-items: center; }
       .exp-legend i { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+
+      /* ---- video recording: hide chrome, keep the clock ticking through time ---- */
+      body.recording .hdr, body.recording .timeline, body.recording .ctrl-col, body.recording .legend,
+      body.recording .warn-panel, body.recording .backfill, body.recording .leaflet-control-zoom,
+      body.recording .leaflet-control-attribution { display: none !important; }
+      body.recording .clock { top: 14px !important; }
+      .vid-overlay { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%); z-index: 3000;
+        background: rgba(8,15,24,0.92); border: 1px solid #2d4a6a; border-radius: 12px; padding: 16px 22px;
+        color: #dbeafe; font-size: 14px; font-weight: 600; box-shadow: 0 8px 30px rgba(0,0,0,0.6); text-align: center; }
+      .vid-overlay .vbar { margin-top: 10px; width: 240px; height: 6px; background: #12233a; border-radius: 4px; overflow: hidden; }
+      .vid-overlay .vfill { height: 100%; width: 0%; background: linear-gradient(90deg,#3b82f6,#5ad1ff); transition: width 0.2s; }
+      .vid-overlay .vhint { margin-top: 8px; font-size: 11px; color: #8ea7bf; font-weight: 500; }
     </style>
   </head>
   <body>
@@ -152,6 +164,7 @@
       <span class="hdr-status" id="statusText">connecting…</span>
       <span class="stats" id="stats"></span>
       <button class="btn" id="dlBtn" title="Select an area to save as a PNG">⬇ Export</button>
+      <button class="btn" id="videoBtn" title="Record a timelapse video of everything since the app started">🎬 Video</button>
       <span class="backend" id="backendLabel"></span>
     </header>
 
