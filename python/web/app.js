@@ -50,6 +50,9 @@ const DEST_COORDS = {};
 for (const [lat, lon, names] of DEST_RAW) for (const nm of names) DEST_COORDS[normPlace(nm)] = [lat, lon];
 function lookupDest(name) { const k = normPlace(name); if (!k) return null; if (DEST_COORDS[k]) return DEST_COORDS[k]; const s = k.replace(/\b(oblast|region|raion|district|city|krai|republic)\b/g, '').replace(/\s+/g, ' ').trim(); return s && DEST_COORDS[s] ? DEST_COORDS[s] : null; }
 function resolveDestLatLon(s) { const name = s.destination || extractDestFromHeading(s.heading); if (name) { const g = lookupDest(name); if (g) return { lat: g[0], lon: g[1], name }; } return null; }
+// Nearest major city (a plausible target) — the fallback a drone flies toward
+// when the post gives no explicit course, so it still moves like on a monitor.
+function nearestDest(lat, lon) { let best = null, bd = Infinity; for (const [dlat, dlon] of DEST_RAW) { const d = haversineKm(lat, lon, dlat, dlon); if (d > 12 && d < bd) { bd = d; best = { lat: dlat, lon: dlon }; } } return bd <= 520 ? best : null; }
 function destIsElsewhere(s, d) { return d && typeof s.lat === 'number' && (Math.abs(d.lat - s.lat) > 0.05 || Math.abs(d.lon - s.lon) > 0.05); }
 function resolveBearing(s) { if (typeof s.bearing === 'number' && isFinite(s.bearing)) return s.bearing; const d = resolveDestLatLon(s); if (destIsElsewhere(s, d)) return bearingTo(s.lat, s.lon, d.lat, d.lon); return headingToBearing(s.heading); }
 function confidentDest(s) { const d = resolveDestLatLon(s); if (!destIsElsewhere(s, d)) return null; if (haversineKm(s.lat, s.lon, d.lat, d.lon) > 1500) return null; return d; }
@@ -128,13 +131,13 @@ function jetGlyph(cx, cy, color, s) {
 }
 function threatGlyph(type, cx, cy, color, s) { if (type === 'drone') return droneGlyph(cx, cy, color, s); if (type === 'aircraft') return jetGlyph(cx, cy, color, s); if (['missile','cruise_missile','ballistic_missile'].includes(type)) return missileGlyph(cx, cy, color, s); return genericGlyph(cx, cy, color, (THREAT[type] || THREAT.unknown).sym, s); }
 const ORIENTABLE = new Set(['drone', 'aircraft', 'missile', 'cruise_missile', 'ballistic_missile']);
-function buildIcon(s) {
+function buildIcon(s, brgOverride) {
   const info = statusInfo(s), color = info.color;
   const isWarn = info.warn, isDanger = info.level >= 3, count = Math.max(1, s.count || 1);
   // Danger markers are noticeably bigger so warnings pop out at a glance.
   const scale = isDanger ? 1.45 : isWarn ? 1.2 : 1.05;
   const isClear = s.status === 'all_clear';
-  const brg = isClear ? null : resolveBearing(s);
+  const brg = isClear ? null : (typeof brgOverride === 'number' ? brgOverride : resolveBearing(s));
   const orient = brg !== null && ORIENTABLE.has(s.threatType);
   // A count of drones is shown as an actual formation of up to 3 drone glyphs,
   // not one icon with a number — plus the exact ×N badge for the true total.
@@ -182,49 +185,63 @@ function buildIcon(s) {
 // Small chevron at the track head — a subtle direction pip, not a big arrow.
 function arrowheadIcon(bearing, color) { const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 14 14"><g transform="rotate(${bearing} 7 7)"><polygon points="7,1.5 3.2,10 7,7.6 10.8,10" fill="${color}" stroke="#0a1622" stroke-width="0.8"/></g></svg>`; return L.divIcon({ className: 'arrow-icon', html: svg, iconSize: [14, 14], iconAnchor: [7, 7] }); }
 
-// ---- hatched affected-region zones ----
-// Warnings shade the whole area under threat as a diagonally-hatched patch (like
-// an air-raid alert map) so the affected region is discernible at a glance, not
-// just a point. Rendered as an SVG overlay so the hatch pattern survives even
-// though the vector layers draw to canvas.
-let hatchUid = 0;
-function svgFromString(str) { const d = document.createElement('div'); d.innerHTML = str.trim(); return d.querySelector('svg'); }
-function drawHatchEllipse(lat, lon, rk, color, level) {
-  const dLat = rk / 111, dLon = rk / (111 * Math.cos(lat * Math.PI / 180));
-  const bounds = L.latLngBounds([lat - dLat, lon - dLon], [lat + dLat, lon + dLon]);
-  const uid = 'hz' + (hatchUid++), fillOp = level >= 3 ? 0.5 : 0.32, gap = level >= 3 ? 6 : 8;
-  const svg = svgFromString(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none">` +
-    `<defs><pattern id="${uid}" width="${gap}" height="${gap}" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">` +
-    `<line x1="0" y1="0" x2="0" y2="${gap}" stroke="${color}" stroke-width="2.3"/></pattern></defs>` +
-    `<ellipse cx="50" cy="50" rx="48" ry="48" fill="url(#${uid})" fill-opacity="${fillOp}" ` +
-    `stroke="${color}" stroke-opacity="0.8" stroke-width="1.3" stroke-dasharray="5 4"/></svg>`);
-  L.svgOverlay(svg, bounds, { interactive: false, className: 'zone-hatch' }).addTo(zonesLayer);
+// ---- region-alert zones (filled area blobs, monitor-map style) ----
+function circlePoly(lat, lon, rk, n = 40) {
+  const out = [];
+  for (let i = 0; i < n; i++) out.push(projectPoint(lat, lon, (360 / n) * i, rk));
+  return out;
 }
-// Group nearby warnings (same oblast, or within ~110 km) into one blob so a
-// cluster of alerts reads as a single region-area warning, not a pile of rings.
+// Convex hull (monotone chain) over [lat,lon] points.
+function convexHull(pts) {
+  if (pts.length < 3) return pts.slice();
+  const p = pts.map((a) => [a[1], a[0]]).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+  const lo = [];
+  for (const q of p) { while (lo.length >= 2 && cross(lo[lo.length - 2], lo[lo.length - 1], q) <= 0) lo.pop(); lo.push(q); }
+  const up = [];
+  for (let i = p.length - 1; i >= 0; i--) { const q = p[i]; while (up.length >= 2 && cross(up[up.length - 2], up[up.length - 1], q) <= 0) up.pop(); up.push(q); }
+  lo.pop(); up.pop();
+  return lo.concat(up).map((a) => [a[1], a[0]]);
+}
+// Push each hull vertex outward from the centroid so the region pads around the
+// drones inside it (like the shaded blobs on the monitor maps).
+function bufferPoly(hull, marginDeg) {
+  const cy = hull.reduce((s, p) => s + p[0], 0) / hull.length;
+  const cx = hull.reduce((s, p) => s + p[1], 0) / hull.length;
+  return hull.map(([la, lo]) => { const dy = la - cy, dx = lo - cx, len = Math.hypot(dy, dx) || 1; return [la + dy / len * marginDeg, lo + dx / len * marginDeg]; });
+}
+// Group nearby warnings (same oblast, or within ~110 km) into one region.
 function clusterWarns(warns) {
   const TH = 110, cl = [];
   for (const s of warns.slice().sort((a, b) => statusInfo(b).level - statusInfo(a).level)) {
     const rk = normPlace(s.region || '');
     let c = cl.find((c) => (rk && c.rk === rk) || haversineKm(c.lat, c.lon, s.lat, s.lon) <= TH);
-    if (!c) { c = { lat: s.lat, lon: s.lon, rk, pts: [], level: 0, color: '#ff7a3d', worst: s }; cl.push(c); }
+    if (!c) { c = { lat: s.lat, lon: s.lon, rk, pts: [], level: 0, worst: s }; cl.push(c); }
     c.pts.push(s);
     c.lat = c.pts.reduce((a, p) => a + p.lat, 0) / c.pts.length;
     c.lon = c.pts.reduce((a, p) => a + p.lon, 0) / c.pts.length;
     const info = statusInfo(s);
-    if (info.level > c.level) { c.level = info.level; c.color = info.color; c.worst = s; }
+    if (info.level > c.level) { c.level = info.level; c.worst = s; }
   }
   return cl;
 }
+// An active alert region is a filled green area with a bright border (like the
+// monitor maps). Impacts/strikes are NOT folded in — they stay as their own red
+// markers on top, so one strike doesn't redden a whole oblast.
 function addClusterZone(c) {
+  const color = '#37d98a';
+  const pts = c.pts.map((p) => [p.lat, p.lon]);
   const anyRegion = c.pts.some((p) => p.geocodePrecision === 'region');
-  let maxd = 0; for (const p of c.pts) maxd = Math.max(maxd, haversineKm(c.lat, c.lon, p.lat, p.lon));
-  let rk;
-  if (c.pts.length === 1) rk = c.pts[0].geocodePrecision === 'region' ? 62 : c.level >= 3 ? 30 : 22;
-  else rk = Math.max(anyRegion ? 62 : 44, maxd + 24);   // enclose the whole cluster
-  drawHatchEllipse(c.lat, c.lon, rk, c.color, c.level);
-  if (c.level >= 3) L.circleMarker([c.worst.lat, c.worst.lon], { radius: 4, color: c.color, fillColor: c.color, fillOpacity: 0.95, weight: 1, opacity: 0.9 }).addTo(zonesLayer);
+  let poly;
+  if (pts.length >= 3) {
+    poly = bufferPoly(convexHull(pts), anyRegion ? 0.42 : 0.3);
+  } else if (pts.length === 2) {
+    const mid = [(pts[0][0] + pts[1][0]) / 2, (pts[0][1] + pts[1][1]) / 2];
+    poly = circlePoly(mid[0], mid[1], haversineKm(pts[0][0], pts[0][1], pts[1][0], pts[1][1]) / 2 + 40);
+  } else {
+    poly = circlePoly(c.lat, c.lon, anyRegion ? 72 : 38);
+  }
+  L.polygon(poly, { color, weight: 2, opacity: 0.9, fillColor: color, fillOpacity: 0.12, lineJoin: 'round', interactive: false }).addTo(zonesLayer);
 }
 
 // ---- airbase reference layer ----
@@ -387,9 +404,8 @@ function renderMarkers(sightings, tracks) {
   const onTail = (s) => tailPts.some((p) => haversineKm(s.lat, s.lon, p.lat, p.lon) < 2.5);
   const visible = toShow.filter((s) => !onTail(s));
 
-  // ZONES: cluster nearby warnings into one region-area warning; lesser
-  // region-level reports get a faint dashed footprint.
-  for (const c of clusterWarns(visible.filter((s) => statusInfo(s).warn))) addClusterZone(c);
+  // ZONES: cluster active alerts (not impacts) into one green region area.
+  for (const c of clusterWarns(visible.filter((s) => statusInfo(s).warn && s.status !== 'impact'))) addClusterZone(c);
   for (const s of visible) if (!statusInfo(s).warn && s.geocodePrecision === 'region')
     L.circle([s.lat, s.lon], { radius: 30000, color: '#6f93b4', weight: 1, opacity: 0.25, fill: false, dashArray: '3 6' }).addTo(zonesLayer);
 
@@ -404,7 +420,9 @@ function renderMarkers(sightings, tracks) {
     const areaWarn = info.warn && s.status !== 'impact';
     if (areaWarn && !plan) continue;
     const ageMin = (asOf - (Date.parse(s.timestamp || '') || asOf)) / 60000, opacity = ageOpacity(ageMin);
-    const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s), opacity, zIndexOffset: info.level * 100 }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
+    // Point a flying object's icon at where it's actually going.
+    const flyBrg = plan ? bearingTo(s.lat, s.lon, plan.toLat, plan.toLon) : undefined;
+    const mk = L.marker([s.lat, s.lon], { icon: buildIcon(s, flyBrg), opacity, zIndexOffset: info.level * 100 }).bindPopup(popupHtml(s), { maxWidth: 300 }).addTo(markersLayer);
     mk._s = s; // let the popup-open handler reach this sighting for translation
     const label = L.tooltip({ permanent: true, direction: 'bottom', className: 'place-label', offset: [0, 14], interactive: false }).setContent(`<span style="color:${color}">${esc(s.location)}</span>`).setLatLng([s.lat, s.lon]).addTo(labelsLayer);
     // A drone/jet/missile with a known course flies that way from its last known
@@ -439,24 +457,25 @@ function moverBearing(s, cls, tracks) {
   }
   return null;
 }
-// A flight plan {cls, toLat, toLon} for an object in flight with a known course,
-// else null. Used both to fly it and to decide it's a moving blip (not a pin).
+// A flight plan {cls, toLat, toLon} for an in-flight object. Every approaching/
+// overhead drone/jet/missile gets one, so they ALL move: explicit destination →
+// heading/track course → nearest major city → east as a last resort.
 function moverPlan(s, tracks) {
   if (!ORIENTABLE.has(s.threatType)) return null;            // drones, jets, missiles
   if (s.status !== 'approaching' && s.status !== 'overhead') return null;
-  const cls = moverClass(s.threatType);
-  const dest = confidentDest(s);
-  const brg = moverBearing(s, cls, tracks);
-  if (!dest && brg === null) return null;     // we don't know where it's flying
-  const totalKm = dest ? Math.min(500, haversineKm(s.lat, s.lon, dest.lat, dest.lon)) : (cls === 'drone' ? 170 : 260);
-  if (totalKm < 4) return null;
-  const target = dest ? [dest.lat, dest.lon] : projectPoint(s.lat, s.lon, brg, totalKm);
-  return { cls, toLat: target[0], toLon: target[1] };
+  const cls = moverClass(s.threatType), reach = cls === 'drone' ? 175 : 270;
+  let dest = confidentDest(s);
+  if (!dest) { const b = moverBearing(s, cls, tracks); if (b !== null) { const [la, lo] = projectPoint(s.lat, s.lon, b, reach); dest = { lat: la, lon: lo }; } }
+  if (!dest) dest = nearestDest(s.lat, s.lon);
+  if (!dest || haversineKm(s.lat, s.lon, dest.lat, dest.lon) < 6) { const [la, lo] = projectPoint(s.lat, s.lon, 90, reach); dest = { lat: la, lon: lo }; }
+  return { cls, toLat: dest.lat, toLon: dest.lon };
 }
 function registerMover(s, marker, label, base, plan) {
   const col = TRACK_COLORS[plan.cls] || TRACK_COLORS.other;
-  const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: col, weight: 1.8, opacity: 0.75, dashArray: '3 5', interactive: false }).addTo(markersLayer);
-  state.movers.push({ marker, label, wake, base: base == null ? 1 : base,
+  // faint projected path to the target + a brighter wake trailing the blip
+  const proj = L.polyline([[s.lat, s.lon], [plan.toLat, plan.toLon]], { color: col, weight: 1.1, opacity: 0.3, dashArray: '2 7', interactive: false }).addTo(markersLayer);
+  const wake = L.polyline([[s.lat, s.lon], [s.lat, s.lon]], { color: col, weight: 2, opacity: 0.85, interactive: false }).addTo(markersLayer);
+  state.movers.push({ marker, label, wake, proj, base: base == null ? 1 : base,
     fromLat: s.lat, fromLon: s.lon, toLat: plan.toLat, toLon: plan.toLon, startT: Date.now() });
 }
 function animateMovers() {

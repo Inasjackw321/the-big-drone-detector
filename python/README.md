@@ -77,11 +77,12 @@ Ollama instead).
   swept-wing aircraft. When a heading/destination is known, a drone slowly
   **advances that way from its last known spot** (live dead-reckoning).
 - **Warnings are a region, not pins.** An area threat (an alert/overhead
-  warning, or a cluster of them) is drawn as one diagonally **hatched region**
-  with a dashed boundary — like an air-raid alert map — rather than a pulsing
-  pin in every town. The drones that are actually **flying through** that region
-  (an in-flight object with a known course) are drawn on top as **moving blips**
-  with a wake; specific impacts and all-clears keep their own marker.
+  warning, or a cluster of them) is drawn as one **filled green region** with a
+  bright border — the monitor-map look — rather than a pulsing pin in every
+  town. Every in-flight drone/jet/missile is drawn on top as a **moving blip**
+  that flies toward its target (its stated destination, its course, or the
+  nearest city) with a **wake** and a dashed **projected track**, its icon
+  pointing the way it's going. Impacts and all-clears keep their own marker.
 - **Tracks** trail the object's **last known location** as a fading comet tail
   (labelled `AO#id · km/h · age`); separate markers are never wired together.
 - **Filters**: All / Danger / Inbound / Cleared / Drones / Missiles.
