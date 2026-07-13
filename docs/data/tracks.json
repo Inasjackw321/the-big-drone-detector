@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-07-13T13:40:52.560Z"}
+{"tracks":[{"id":"trk-3","threatClass":"drone","points":[{"lat":51.7,"lon":36.2,"time":"2026-07-13T15:31:25+00:00","location":"Курская область","status":"approaching","count":null},{"lat":50.939,"lon":36.6386,"time":"2026-07-13T16:09:11+00:00","location":"Ивановка","status":"approaching","count":null}],"firstSeen":"2026-07-13T15:31:25+00:00","lastSeen":"2026-07-13T16:09:11+00:00","ended":false,"distanceKm":90}],"updatedAt":"2026-07-13T16:14:19.908Z"}
