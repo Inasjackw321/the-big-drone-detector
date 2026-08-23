@@ -1,15 +1,15 @@
 {
   "sightings": [
     {
-      "id": "radarrussiia/89891:Анапа и близлежащие",
-      "location": "Анапа и близлежащие",
-      "locationRu": "Анапа и близлежащие",
-      "region": "Краснодарский край",
-      "lat": 45.5,
-      "lon": 39.5,
-      "geocodeSource": "gazetteer-region",
-      "geocodePrecision": "region",
-      "matchedName": "Krasnodar Krai",
+      "id": "locatorru/82178:Ростовская область",
+      "location": "Ростовская область",
+      "locationRu": "Ростовская область",
+      "region": "Ростовская область",
+      "lat": 47.7,
+      "lon": 41,
+      "geocodeSource": "gazetteer",
+      "geocodePrecision": "point",
+      "matchedName": "Rostov Oblast",
       "threatType": "drone",
       "count": null,
       "heading": null,
@@ -19,20 +19,20 @@
       "bearing": null,
       "status": "all_clear",
       "confidence": 0.55,
-      "postId": 89891,
-      "postLink": "https://t.me/radarrussiia/89891",
-      "postText": "Анапа и близлежащие\nКраснодарский край\nОтбой опасности по БПЛА\nНа территории края опасность сохраняется\n\n❗️Радар по всей России - @radarrussiia\n🌐 Обход белых списков - @Internet_Boost_bot",
-      "postDate": "2026-08-23T16:34:42+00:00",
-      "summary": "Drone activity (all_clear) at Анапа и близлежащие",
-      "timestamp": "2026-08-23T16:34:42+00:00",
-      "channel": "radarrussiia"
+      "postId": 82178,
+      "postLink": "https://t.me/locatorru/82178",
+      "postText": "Ставропольский край, Ростовская область - отбой опасности по БПЛА.\n\n📡Локатор России - @locatorru",
+      "postDate": "2026-08-23T17:50:32+00:00",
+      "summary": "Drone activity (all_clear) at Ростовская область",
+      "timestamp": "2026-08-23T17:50:32+00:00",
+      "channel": "locatorru"
     }
   ],
   "lastPostId": {
-    "radarrussiia": 89891,
-    "kpszsu": 74199,
-    "lpr1_treugolnik": 265609,
-    "locatorru": 82177
+    "radarrussiia": 89892,
+    "kpszsu": 74203,
+    "lpr1_treugolnik": 265616,
+    "locatorru": 82178
   },
-  "updatedAt": "2026-08-23T17:31:07.809Z"
+  "updatedAt": "2026-08-23T17:53:17.631Z"
 }
