@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-08-25T18:28:52.094Z"}
+{"tracks":[{"id":"trk-8","threatClass":"drone","points":[{"lat":45.5061,"lon":32.6831,"time":"2026-08-25T18:31:18+00:00","location":"Черноморское","status":"approaching","count":null},{"lat":45.3473,"lon":32.4936,"time":"2026-08-25T18:31:18+00:00","location":"Тарханкут","status":"approaching","count":null}],"firstSeen":"2026-08-25T18:31:18+00:00","lastSeen":"2026-08-25T18:31:18+00:00","ended":false,"distanceKm":23}],"updatedAt":"2026-08-25T19:10:50.120Z"}
