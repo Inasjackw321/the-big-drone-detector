@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-09-01T16:41:12.188Z"}
+{"tracks":[{"id":"trk-4","threatClass":"drone","points":[{"lat":51.5391,"lon":34.2676,"time":"2026-09-01T19:30:32+00:00","location":"Старая Николаевка","status":"approaching","count":null},{"lat":51.5714,"lon":34.624,"time":"2026-09-01T19:30:32+00:00","location":"Рыльский район","status":"approaching","count":null}],"firstSeen":"2026-09-01T19:30:32+00:00","lastSeen":"2026-09-01T19:30:32+00:00","ended":false,"distanceKm":25}],"updatedAt":"2026-09-01T19:38:36.947Z"}
