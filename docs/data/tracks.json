@@ -1,1 +1,1 @@
-{"tracks":[{"id":"trk-3","threatClass":"drone","points":[{"lat":50.8404,"lon":42.5439,"time":"2026-09-11T23:05:49+00:00","location":"Куликовский","status":"unknown","count":null},{"lat":50.9758,"lon":42.6612,"time":"2026-09-11T23:05:49+00:00","location":"Новониколаевский район","status":"unknown","count":null}],"firstSeen":"2026-09-11T23:05:49+00:00","lastSeen":"2026-09-11T23:05:49+00:00","ended":false,"distanceKm":17}],"updatedAt":"2026-09-12T10:43:37.210Z"}
+{"tracks":[],"updatedAt":"2026-09-12T13:47:36.040Z"}
