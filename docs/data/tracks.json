@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-09-16T11:52:54.639Z"}
+{"tracks":[{"id":"trk-3","threatClass":"drone","points":[{"lat":48.5235,"lon":39.2864,"time":"2026-09-16T15:37:45+00:00","location":"ЛНР","status":"approaching","count":null},{"lat":47.0971,"lon":37.5434,"time":"2026-09-16T15:39:22+00:00","location":"Мариуполь","status":"approaching","count":null}],"firstSeen":"2026-09-16T15:37:45+00:00","lastSeen":"2026-09-16T15:39:22+00:00","ended":false,"distanceKm":205}],"updatedAt":"2026-09-16T16:06:48.835Z"}
