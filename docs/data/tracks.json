@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-09-20T14:55:49.247Z"}
+{"tracks":[{"id":"trk-3","threatClass":"drone","points":[{"lat":46.8996,"lon":39.2767,"time":"2026-09-20T17:55:28+00:00","location":"Азовский район","status":"approaching","count":null},{"lat":45.3273,"lon":38.34,"time":"2026-09-20T17:56:20+00:00","location":"Красноармейский район","status":"approaching","count":null}],"firstSeen":"2026-09-20T17:55:28+00:00","lastSeen":"2026-09-20T17:56:20+00:00","ended":false,"distanceKm":189}],"updatedAt":"2026-09-20T18:09:46.204Z"}
