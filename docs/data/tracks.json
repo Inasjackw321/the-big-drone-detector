@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-09-26T16:42:32.439Z"}
+{"tracks":[{"id":"trk-5","threatClass":"drone","points":[{"lat":45.3119,"lon":33.6407,"time":"2026-09-26T18:39:58+00:00","location":"Наумовка","status":"approaching","count":null},{"lat":45.2569,"lon":33.508,"time":"2026-09-26T18:42:20+00:00","location":"Сакский район","status":"unknown","count":null}],"firstSeen":"2026-09-26T18:39:58+00:00","lastSeen":"2026-09-26T18:42:20+00:00","ended":false,"distanceKm":12}],"updatedAt":"2026-09-26T19:27:41.660Z"}
