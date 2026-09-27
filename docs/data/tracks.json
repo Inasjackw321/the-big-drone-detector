@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-09-27T15:41:02.940Z"}
+{"tracks":[{"id":"trk-2","threatClass":"drone","points":[{"lat":47.1056,"lon":39.4231,"time":"2026-09-27T18:50:40+00:00","location":"Азов","status":"unknown","count":null},{"lat":47.1386,"lon":39.7461,"time":"2026-09-27T18:50:40+00:00","location":"Батайск","status":"unknown","count":null}],"firstSeen":"2026-09-27T18:50:40+00:00","lastSeen":"2026-09-27T18:50:40+00:00","ended":false,"distanceKm":25}],"updatedAt":"2026-09-27T19:19:10.797Z"}
