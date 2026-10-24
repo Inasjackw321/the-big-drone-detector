@@ -1,1 +1,1 @@
-{"tracks":[{"id":"trk-1","threatClass":"drone","points":[{"lat":44.6166,"lon":33.5254,"time":"2026-10-24T05:44:59+00:00","location":"Севастополь","status":"unknown","count":null},{"lat":44.4076,"lon":33.7218,"time":"2026-10-24T05:44:59+00:00","location":"ЮБК","status":"unknown","count":null}],"firstSeen":"2026-10-24T05:44:59+00:00","lastSeen":"2026-10-24T05:44:59+00:00","ended":false,"distanceKm":28}],"updatedAt":"2026-10-24T14:54:33.560Z"}
+{"tracks":[],"updatedAt":"2026-10-24T17:56:08.256Z"}
