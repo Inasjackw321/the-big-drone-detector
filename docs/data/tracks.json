@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-10-25T17:41:58.986Z"}
+{"tracks":[{"id":"trk-2","threatClass":"missile","points":[{"lat":53.1222,"lon":34.9826,"time":"2026-10-25T19:35:08+00:00","location":"Карачев","status":"approaching","count":null},{"lat":52.9685,"lon":36.0692,"time":"2026-10-25T19:53:16+00:00","location":"Орёл","status":"approaching","count":null}],"firstSeen":"2026-10-25T19:35:08+00:00","lastSeen":"2026-10-25T19:53:16+00:00","ended":false,"distanceKm":75}],"updatedAt":"2026-10-25T20:00:53.653Z"}
