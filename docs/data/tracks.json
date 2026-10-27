@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-10-27T12:25:50.338Z"}
+{"tracks":[{"id":"trk-2","threatClass":"drone","points":[{"lat":53.828,"lon":34.0998,"time":"2026-10-27T18:00:18+00:00","location":"Бытошь","status":"approaching","count":null},{"lat":53.6472,"lon":34.2386,"time":"2026-10-27T18:00:18+00:00","location":"Дятьковский район","status":"approaching","count":null}],"firstSeen":"2026-10-27T18:00:18+00:00","lastSeen":"2026-10-27T18:00:18+00:00","ended":false,"distanceKm":22}],"updatedAt":"2026-10-27T18:12:05.229Z"}
