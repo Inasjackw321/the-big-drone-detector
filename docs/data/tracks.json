@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-10-28T14:14:16.376Z"}
+{"tracks":[{"id":"trk-5","threatClass":"drone","points":[{"lat":53.4143,"lon":34.8553,"time":"2026-10-28T19:13:57+00:00","location":"Бояновичи","status":"approaching","count":null},{"lat":54.5028,"lon":37.0667,"time":"2026-10-28T19:14:22+00:00","location":"Алексин","status":"shot_down","count":null}],"firstSeen":"2026-10-28T19:13:57+00:00","lastSeen":"2026-10-28T19:14:22+00:00","ended":true,"distanceKm":189}],"updatedAt":"2026-10-28T19:40:11.133Z"}
