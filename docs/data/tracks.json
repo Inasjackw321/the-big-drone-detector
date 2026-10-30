@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-10-30T14:06:43.775Z"}
+{"tracks":[{"id":"trk-1","threatClass":"drone","points":[{"lat":51.1405,"lon":39.34,"time":"2026-10-30T18:29:06+00:00","location":"Машкино","status":"approaching","count":null},{"lat":51.1725,"lon":39.7173,"time":"2026-10-30T18:29:06+00:00","location":"Лискинский район","status":"approaching","count":null}],"firstSeen":"2026-10-30T18:29:06+00:00","lastSeen":"2026-10-30T18:29:06+00:00","ended":false,"distanceKm":27}],"updatedAt":"2026-10-30T19:20:37.272Z"}
