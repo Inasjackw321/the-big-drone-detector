@@ -1,1 +1,1 @@
-{"tracks":[],"updatedAt":"2026-11-17T20:05:04.931Z"}
+{"tracks":[{"id":"trk-2","threatClass":"drone","points":[{"lat":45.7102,"lon":37.7754,"time":"2026-11-18T02:19:01+00:00","location":"Ачуево","status":"approaching","count":null},{"lat":45.5,"lon":39.5,"time":"2026-11-18T02:20:14+00:00","location":"Краснодарский край.","status":"unknown","count":null}],"firstSeen":"2026-11-18T02:19:01+00:00","lastSeen":"2026-11-18T02:20:14+00:00","ended":false,"distanceKm":136}],"updatedAt":"2026-11-18T02:25:05.575Z"}
